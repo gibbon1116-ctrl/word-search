@@ -259,6 +259,12 @@ textarea {
   gap: 10px;
 }
 
+.export-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -561,6 +567,23 @@ textarea {
   box-shadow: var(--shadow);
 }
 
+.document-summary-card {
+  padding: 0;
+}
+
+.summary-card-link {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  color: var(--ink);
+}
+
+.summary-warning {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 0.88rem;
+}
+
 .result-header {
   display: grid;
   justify-items: start;
@@ -604,6 +627,23 @@ mark {
   align-items: center;
   gap: 3px;
   font-weight: 800;
+}
+
+.term-summary-list {
+  display: grid;
+  gap: 14px;
+}
+
+.term-summary-section {
+  display: grid;
+  gap: 12px;
+}
+
+.term-snippet-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .query-summary {
@@ -831,6 +871,10 @@ mark {
 
   .settings-actions {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .export-actions {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 

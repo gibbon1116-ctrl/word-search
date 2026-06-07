@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
-import { SearchResultCard } from "../components/search/SearchResultCard";
+import { SearchDocumentSummaryCard } from "../components/search/SearchDocumentSummaryCard";
 import { JA } from "../i18n/ja";
-import type { SearchResult } from "../models/SearchResult";
+import type { SearchDocumentSummary } from "../models/SearchResult";
 import { searchService } from "../services/search/SearchService";
 import { storageService } from "../services/storage/StorageService";
 
@@ -13,7 +13,7 @@ export function SearchResultsPage() {
   const query = searchParams.get("query") ?? "";
   const fileType = searchParams.get("fileType") ?? "all";
   const fileName = searchParams.get("fileName") ?? "";
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [documentSummaries, setDocumentSummaries] = useState<SearchDocumentSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -21,24 +21,29 @@ export function SearchResultsPage() {
     setIsLoading(true);
     storageService
       .getAppSettings()
-      .then((settings) =>
-        searchService.search({
+      .then(async (settings) => {
+        const criteria = {
           query,
           fileType,
           fileName,
           snippetBeforeChars: settings.snippetBeforeChars,
           snippetAfterChars: settings.snippetAfterChars,
-        }),
-      )
-      .then(setResults)
+        };
+        return searchService.searchGroupedByDocument(criteria);
+      })
+      .then(setDocumentSummaries)
       .finally(() => setIsLoading(false));
   }, [query, fileType, fileName]);
+
+  const resultCount = documentSummaries.length;
+  const documentResultParams = new URLSearchParams(searchParams);
+  documentResultParams.delete("view");
 
   return (
     <div className="page-stack">
       <PageHeader
         title={JA.screens.results}
-        description={isLoading ? "検索しています。" : `検索結果: ${results.length}件`}
+        description={isLoading ? "検索しています。" : `ヒットした書籍: ${resultCount}件`}
         actions={<Link className="button secondary link-button" to="/search">{JA.actions.back}</Link>}
       />
 
@@ -51,15 +56,15 @@ export function SearchResultsPage() {
 
       {isLoading ? <div className="status-banner">{JA.messages.searching}</div> : null}
 
-      {!isLoading && results.length ? (
+      {!isLoading && documentSummaries.length ? (
         <div className="card-list">
-          {results.map((result) => (
-            <SearchResultCard key={result.resultId} result={result} />
+          {documentSummaries.map((summary) => (
+            <SearchDocumentSummaryCard key={summary.documentId} summary={summary} searchParams={documentResultParams} />
           ))}
         </div>
       ) : null}
 
-      {!isLoading && !results.length ? <EmptyState title={JA.messages.noSearchResults} /> : null}
+      {!isLoading && !resultCount ? <EmptyState title={JA.messages.noSearchResults} /> : null}
     </div>
   );
 }

@@ -26,11 +26,11 @@ export class SnippetService {
     const beforeChars = params.options?.snippetBeforeChars ?? 100;
     const afterChars = params.options?.snippetAfterChars ?? 100;
     const maxMatches = params.options?.maxMatchesPerChunk ?? 3;
-    const fullText = params.chunks.map((chunk) => chunk.text).join("\n\n");
-    const matches = findMatches(params.chunk.text, params.keywords).slice(0, maxMatches);
+    const chunkText = getPreferredSearchText(params.chunk);
+    const matches = findMatches(chunkText, params.keywords).slice(0, maxMatches);
 
     if (!matches.length) {
-      const fallbackSnippet = params.chunk.text.slice(0, beforeChars + afterChars);
+      const fallbackSnippet = chunkText.slice(0, beforeChars + afterChars);
       return [{
         resultId: createId("result_fuzzy"),
         documentId: params.chunk.documentId,
@@ -40,7 +40,7 @@ export class SnippetService {
         matchedText: params.keywords[0] ?? "",
         snippetBefore: "",
         snippetAfter: fallbackSnippet,
-        snippet: `${fallbackSnippet}${params.chunk.text.length > fallbackSnippet.length ? "..." : ""}`,
+        snippet: `${fallbackSnippet}${chunkText.length > fallbackSnippet.length ? "..." : ""}`,
         matchStart: params.chunk.startOffset,
         matchEnd: params.chunk.startOffset,
         pageNumber: params.chunk.pageNumber,
@@ -51,14 +51,14 @@ export class SnippetService {
         metadata: {
           ...params.chunk.metadata,
           hasLeadingEllipsis: false,
-          hasTrailingEllipsis: params.chunk.text.length > fallbackSnippet.length,
+          hasTrailingEllipsis: chunkText.length > fallbackSnippet.length,
           centeredKeyword: params.keywords[0] ?? "",
           chunkIndex: params.chunk.chunkIndex,
           fuzzySearchHit: true,
         },
         highlightRanges: [],
         hasLeadingEllipsis: false,
-        hasTrailingEllipsis: params.chunk.text.length > fallbackSnippet.length,
+        hasTrailingEllipsis: chunkText.length > fallbackSnippet.length,
         score: 0.55,
       }];
     }
@@ -66,15 +66,15 @@ export class SnippetService {
     return matches.map((match, index) => {
       const globalStart = params.chunk.startOffset + match.localStart;
       const globalEnd = params.chunk.startOffset + match.localEnd;
-      const snippetStart = Math.max(0, globalStart - beforeChars);
-      const snippetEnd = Math.min(fullText.length, globalEnd + afterChars);
+      const snippetStart = Math.max(0, match.localStart - beforeChars);
+      const snippetEnd = Math.min(chunkText.length, match.localEnd + afterChars);
       const hasLeadingEllipsis = snippetStart > 0;
-      const hasTrailingEllipsis = snippetEnd < fullText.length;
+      const hasTrailingEllipsis = snippetEnd < chunkText.length;
       const prefix = hasLeadingEllipsis ? "..." : "";
       const suffix = hasTrailingEllipsis ? "..." : "";
-      const snippetBefore = fullText.slice(snippetStart, globalStart);
-      const matchedText = fullText.slice(globalStart, globalEnd);
-      const snippetAfter = fullText.slice(globalEnd, snippetEnd);
+      const snippetBefore = chunkText.slice(snippetStart, match.localStart);
+      const matchedText = chunkText.slice(match.localStart, match.localEnd);
+      const snippetAfter = chunkText.slice(match.localEnd, snippetEnd);
       const snippet = `${prefix}${snippetBefore}${matchedText}${snippetAfter}${suffix}`;
       const highlightStart = prefix.length + snippetBefore.length;
       const highlightRanges: HighlightRange[] = [
@@ -121,6 +121,12 @@ export class SnippetService {
       };
     });
   }
+}
+
+function getPreferredSearchText(chunk: ExtractedChunk): string {
+  const correctedSearchText = typeof chunk.metadata.correctedSearchText === "string" ? chunk.metadata.correctedSearchText.trim() : "";
+  const originalOcrText = typeof chunk.metadata.originalOcrText === "string" ? chunk.metadata.originalOcrText.trim() : "";
+  return correctedSearchText || originalOcrText || chunk.text;
 }
 
 function findMatches(text: string, keywords: string[]): MatchLocation[] {
