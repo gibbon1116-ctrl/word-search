@@ -1,4 +1,4 @@
-const CACHE_NAME = "local-document-search-pwa-v1";
+const CACHE_NAME = "local-document-search-pwa-v2";
 const APP_SHELL = ["./", "./index.html", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
