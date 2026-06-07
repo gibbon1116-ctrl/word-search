@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
+import { SnippetText } from "../components/search/SnippetText";
 import { JA } from "../i18n/ja";
 import type { DocumentRecord } from "../models/DocumentRecord";
 import type { SearchTermSummary } from "../models/SearchResult";
@@ -85,8 +86,10 @@ export function SearchDocumentResultsPage() {
                       {snippet.rowNumber !== undefined ? <span>{JA.labels.rowNumber}: {snippet.rowNumber}</span> : null}
                       {snippet.heading ? <span>{JA.labels.heading}: {snippet.heading}</span> : null}
                     </div>
-                    <p className="snippet">{snippet.snippet}</p>
-                    <Link className="inline-link" to={`/documents/${documentId}?chunkId=${snippet.chunkId}`}>
+                    <p className="snippet">
+                      <SnippetText text={snippet.snippet} ranges={snippet.highlightRanges} />
+                    </p>
+                    <Link className="inline-link" to={`/documents/${documentId}?${createDetailParams(snippet.chunkId, query)}`}>
                       該当箇所を開く
                     </Link>
                   </article>
@@ -105,4 +108,10 @@ export function SearchDocumentResultsPage() {
 function formatValues(values: string[]): string {
   if (values.length <= 12) return values.join(", ");
   return `${values.slice(0, 12).join(", ")} ほか${values.length - 12}件`;
+}
+
+function createDetailParams(chunkId: string, query: string): string {
+  const params = new URLSearchParams({ chunkId });
+  if (query.trim()) params.set("query", query);
+  return params.toString();
 }

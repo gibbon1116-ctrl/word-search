@@ -65,6 +65,7 @@ export interface SearchTermSummary {
     rowNumber?: number;
     heading?: string;
     snippet: string;
+    highlightRanges: HighlightRange[];
     score: number;
   }>;
 }

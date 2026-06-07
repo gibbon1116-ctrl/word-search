@@ -193,13 +193,16 @@ function createTermSummary(term: string, chunks: ExtractedChunk[], criteria: Sea
     for (const match of effectiveMatches.slice(0, 3)) {
       const snippetStart = Math.max(0, match.start - beforeChars);
       const snippetEnd = Math.min(searchableText.length, match.end + afterChars);
+      const prefix = snippetStart > 0 ? "..." : "";
+      const snippetText = searchableText.slice(snippetStart, snippetEnd);
       snippets.push({
         chunkId: chunk.chunkId,
         pageNumber: chunk.pageNumber,
         sheetName: chunk.sheetName,
         rowNumber: chunk.rowNumber,
         heading: chunk.heading,
-        snippet: `${snippetStart > 0 ? "..." : ""}${searchableText.slice(snippetStart, snippetEnd)}${snippetEnd < searchableText.length ? "..." : ""}`,
+        snippet: `${prefix}${snippetText}${snippetEnd < searchableText.length ? "..." : ""}`,
+        highlightRanges: createSnippetHighlightRanges(searchableText, term, snippetStart, snippetEnd, prefix.length),
         score: matches.length ? 1 : 0.55,
       });
     }
@@ -233,6 +236,19 @@ function findTermMatches(text: string, term: string): Array<{ start: number; end
     cursor = found + Math.max(lowerTerm.length, 1);
   }
   return matches;
+}
+
+function createSnippetHighlightRanges(
+  text: string,
+  term: string,
+  snippetStart: number,
+  snippetEnd: number,
+  prefixLength: number,
+): Array<{ start: number; end: number }> {
+  return findTermMatches(text.slice(snippetStart, snippetEnd), term).map((match) => ({
+    start: prefixLength + match.start,
+    end: prefixLength + match.end,
+  }));
 }
 
 function getNumberMetadata(metadata: Record<string, unknown>, key: string): number | undefined {
