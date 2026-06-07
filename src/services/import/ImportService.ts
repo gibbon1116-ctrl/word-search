@@ -6,7 +6,7 @@ import { getReadableFileType, isSupportedFile } from "../../utils/fileUtils";
 import { createId } from "../../utils/textUtils";
 import { extractorRegistry } from "../extractors/ExtractorRegistry";
 
-const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
 export interface ImportProgress {
   fileName: string;
@@ -42,7 +42,7 @@ export class ImportService {
           throw new Error("このファイル形式には対応していません。対応形式一覧を確認してください。");
         }
         if (file.size > MAX_FILE_BYTES) {
-          throw new Error("ファイルサイズが大きすぎます。100MB以下のファイルを選択してください。");
+          throw new Error("ファイルサイズが大きすぎます。200MB以下のファイルを選択してください。");
         }
         const extracted = await extractorRegistry.getExtractor(file).extract(file);
         await saveExtractedDocument(extracted);
