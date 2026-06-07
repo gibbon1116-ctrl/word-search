@@ -5,6 +5,7 @@ import type { ExtractedDocument } from "../../models/ExtractedDocument";
 import { getReadableFileType, isSupportedFile } from "../../utils/fileUtils";
 import { createId } from "../../utils/textUtils";
 import { extractorRegistry } from "../extractors/ExtractorRegistry";
+import type { ExtractOptions } from "../extractors/types";
 
 const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
@@ -14,6 +15,8 @@ export interface ImportProgress {
   total: number;
   status: "pending" | "processing" | "success" | "failed";
   message: string;
+  pageNumber?: number;
+  totalPages?: number;
 }
 
 export interface ImportResult {
@@ -24,10 +27,23 @@ export interface ImportResult {
   documentId?: string;
 }
 
+export interface ImportOptions {
+  signal?: AbortSignal;
+  usePdfOcr?: boolean;
+  pdfOcrTestOnly?: boolean;
+}
+
 export class ImportService {
-  async importFiles(files: File[], onProgress?: (progress: ImportProgress) => void): Promise<ImportResult[]> {
+  async importFiles(
+    files: File[],
+    onProgress?: (progress: ImportProgress) => void,
+    options: ImportOptions = {},
+  ): Promise<ImportResult[]> {
     const results: ImportResult[] = [];
     for (let index = 0; index < files.length; index += 1) {
+      if (options.signal?.aborted) {
+        break;
+      }
       const file = files[index];
       onProgress?.({
         fileName: file.name,
@@ -44,7 +60,23 @@ export class ImportService {
         if (file.size > MAX_FILE_BYTES) {
           throw new Error("ファイルサイズが大きすぎます。200MB以下のファイルを選択してください。");
         }
-        const extracted = await extractorRegistry.getExtractor(file).extract(file);
+        const extractOptions: ExtractOptions = {
+          signal: options.signal,
+          pdfOcrMode: options.usePdfOcr ? "auto" : "disabled",
+          pdfOcrTestOnly: options.pdfOcrTestOnly,
+          onProgress: (detail) => {
+            onProgress?.({
+              fileName: file.name,
+              current: index + 1,
+              total: files.length,
+              status: "processing",
+              message: detail.message,
+              pageNumber: detail.pageNumber,
+              totalPages: detail.totalPages,
+            });
+          },
+        };
+        const extracted = await extractorRegistry.getExtractor(file).extract(file, extractOptions);
         await saveExtractedDocument(extracted);
         results.push({
           fileName: file.name,

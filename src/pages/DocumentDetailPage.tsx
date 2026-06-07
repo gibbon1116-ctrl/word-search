@@ -75,6 +75,8 @@ export function DocumentDetailPage() {
         <MetaRow label={JA.labels.chunkCount} value={documentRecord.chunkCount} />
       </section>
 
+      <PdfDiagnosticsPanel metadata={documentRecord.metadata} />
+
       <section className="filter-panel">
         <label>
           {JA.labels.chunkSearch}
@@ -114,5 +116,55 @@ export function DocumentDetailPage() {
         <pre className="metadata-pre">{JSON.stringify(documentRecord.metadata, null, 2)}</pre>
       </section>
     </div>
+  );
+}
+
+function PdfDiagnosticsPanel({ metadata }: { metadata: Record<string, unknown> }) {
+  const diagnostics = metadata.pdfDiagnostics;
+  if (!isPdfDiagnostics(diagnostics)) {
+    return null;
+  }
+
+  const sourceLabel = diagnostics.ocrPageCount > 0 ? "PDF.js + OCR" : "PDF.js";
+  return (
+    <section className="info-section">
+      <h2>PDF抽出診断</h2>
+      <div className="diagnostic-grid">
+        <span>抽出方式</span>
+        <strong>{sourceLabel}</strong>
+        <span>抽出文字数</span>
+        <strong>{diagnostics.totalTextLength.toLocaleString("ja-JP")}文字</strong>
+        <span>OCR使用ページ</span>
+        <strong>{diagnostics.ocrPageCount.toLocaleString("ja-JP")}ページ</strong>
+        <span>低品質ページ</span>
+        <strong>{diagnostics.lowQualityPageCount.toLocaleString("ja-JP")}ページ</strong>
+      </div>
+      {diagnostics.diagnostics.length ? (
+        <ul className="diagnostic-list">
+          {diagnostics.diagnostics.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="helper-text">PDF文字層から本文を取得できています。</p>
+      )}
+    </section>
+  );
+}
+
+function isPdfDiagnostics(value: unknown): value is {
+  totalTextLength: number;
+  lowQualityPageCount: number;
+  ocrPageCount: number;
+  diagnostics: string[];
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "totalTextLength" in value &&
+    "lowQualityPageCount" in value &&
+    "ocrPageCount" in value &&
+    "diagnostics" in value &&
+    Array.isArray((value as { diagnostics: unknown }).diagnostics)
   );
 }

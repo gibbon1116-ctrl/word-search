@@ -1,9 +1,16 @@
-const CACHE_NAME = "local-document-search-pwa-v3";
+const CACHE_NAME = "local-document-search-pwa-v4";
 const APP_SHELL = ["./", "./index.html", "./manifest.json"];
+const PDFJS_ASSETS = [
+  "./pdfjs/cmaps/Adobe-Japan1-UCS2.bcmap",
+  "./pdfjs/cmaps/UniJIS-UTF16-H.bcmap",
+  "./pdfjs/cmaps/UniJIS-UTF8-H.bcmap",
+  "./pdfjs/standard_fonts/LiberationSans-Regular.ttf",
+  "./pdfjs/standard_fonts/LiberationSans-Bold.ttf",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()),
+    caches.open(CACHE_NAME).then((cache) => cache.addAll([...APP_SHELL, ...PDFJS_ASSETS])).then(() => self.skipWaiting()),
   );
 });
 

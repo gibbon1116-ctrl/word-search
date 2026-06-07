@@ -6,7 +6,14 @@ export function createId(prefix: string): string {
 }
 
 export function normalizeForSearch(text: string): string {
-  return text.toLocaleLowerCase("ja-JP");
+  return text
+    .normalize("NFKC")
+    .toLocaleLowerCase("ja-JP")
+    .replace(/([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])\s+([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])/gu, "$1$2")
+    .replace(/([a-z0-9])\s+([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])/gu, "$1$2")
+    .replace(/([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])\s+([a-z0-9])/gu, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function splitKeywords(query: string): string[] {

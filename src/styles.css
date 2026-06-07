@@ -445,6 +445,59 @@ a:focus-visible {
   font-weight: 700;
 }
 
+.option-stack {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 620px);
+  margin: 6px auto 0;
+  text-align: left;
+}
+
+.check-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 700;
+}
+
+.check-option input {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+  flex: 0 0 auto;
+}
+
+.helper-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+
+.diagnostic-grid {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 8px 14px;
+  align-items: baseline;
+}
+
+.diagnostic-grid span {
+  color: var(--muted);
+}
+
+.diagnostic-list {
+  margin: 14px 0 0;
+  padding-left: 1.2rem;
+  color: var(--ink);
+  line-height: 1.7;
+}
+
 .status-banner {
   display: flex;
   align-items: center;
