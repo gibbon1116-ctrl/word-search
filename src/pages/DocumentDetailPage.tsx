@@ -3,9 +3,11 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/common/EmptyState";
 import { MetaRow } from "../components/common/MetaRow";
 import { PageHeader } from "../components/common/PageHeader";
+import { SnippetText } from "../components/search/SnippetText";
 import { JA } from "../i18n/ja";
 import type { DocumentRecord } from "../models/DocumentRecord";
 import type { ExtractedChunk } from "../models/ExtractedChunk";
+import type { HighlightRange } from "../models/SearchResult";
 import {
   createExportFileName,
   downloadBlob,
@@ -17,12 +19,13 @@ import {
 import { storageService } from "../services/storage/StorageService";
 import { formatDateTime } from "../utils/dateUtils";
 import { formatBytes } from "../utils/fileUtils";
-import { normalizeForSearch } from "../utils/textUtils";
+import { normalizeForSearch, splitKeywords } from "../utils/textUtils";
 
 export function DocumentDetailPage() {
   const { documentId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const selectedChunkId = searchParams.get("chunkId");
+  const highlightQuery = searchParams.get("query") ?? "";
   const [documentRecord, setDocumentRecord] = useState<DocumentRecord>();
   const [chunks, setChunks] = useState<ExtractedChunk[]>([]);
   const [chunkQuery, setChunkQuery] = useState("");
@@ -46,7 +49,7 @@ export function DocumentDetailPage() {
   const filteredChunks = useMemo(() => {
     if (!chunkQuery.trim()) return chunks;
     const normalized = normalizeForSearch(chunkQuery);
-    return chunks.filter((chunk) => normalizeForSearch(`${chunk.heading ?? ""}\n${chunk.text}`).includes(normalized));
+    return chunks.filter((chunk) => normalizeForSearch(`${chunk.heading ?? ""}\n${getChunkDisplayText(chunk)}`).includes(normalized));
   }, [chunkQuery, chunks]);
 
   function handleExport(format: "markdown" | "text" | "json" | "csv") {
@@ -174,7 +177,9 @@ export function DocumentDetailPage() {
                 {chunk.cellRange ? <span>{JA.labels.cellRange}: {chunk.cellRange}</span> : null}
                 {chunk.heading ? <span>{JA.labels.heading}: {chunk.heading}</span> : null}
               </div>
-              <pre>{chunk.text}</pre>
+              <pre>
+                <SnippetText text={getChunkDisplayText(chunk)} ranges={createHighlightRanges(getChunkDisplayText(chunk), highlightQuery)} />
+              </pre>
             </article>
           ))}
         </div>
@@ -186,6 +191,46 @@ export function DocumentDetailPage() {
       </section>
     </div>
   );
+}
+
+function getChunkDisplayText(chunk: ExtractedChunk): string {
+  const correctedSearchText = typeof chunk.metadata.correctedSearchText === "string" ? chunk.metadata.correctedSearchText.trim() : "";
+  const originalOcrText = typeof chunk.metadata.originalOcrText === "string" ? chunk.metadata.originalOcrText.trim() : "";
+  return correctedSearchText || originalOcrText || chunk.text;
+}
+
+function createHighlightRanges(text: string, query: string): HighlightRange[] {
+  const terms = Array.from(new Set(splitKeywords(query)));
+  const ranges: HighlightRange[] = [];
+  const lowerText = text.toLocaleLowerCase("ja-JP");
+
+  for (const term of terms) {
+    const lowerTerm = term.toLocaleLowerCase("ja-JP");
+    if (!lowerTerm) continue;
+    let cursor = 0;
+    while (cursor < lowerText.length) {
+      const found = lowerText.indexOf(lowerTerm, cursor);
+      if (found < 0) break;
+      ranges.push({ start: found, end: found + lowerTerm.length });
+      cursor = found + Math.max(lowerTerm.length, 1);
+    }
+  }
+
+  return mergeHighlightRanges(ranges);
+}
+
+function mergeHighlightRanges(ranges: HighlightRange[]): HighlightRange[] {
+  const sorted = ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: HighlightRange[] = [];
+  for (const range of sorted) {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.start > previous.end) {
+      merged.push({ ...range });
+    } else {
+      previous.end = Math.max(previous.end, range.end);
+    }
+  }
+  return merged;
 }
 
 function PdfDiagnosticsPanel({ metadata }: { metadata: Record<string, unknown> }) {
