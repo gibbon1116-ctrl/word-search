@@ -1,0 +1,6 @@
+{
+  "title": "サンプルJSON資料",
+  "system": "受変電設備",
+  "policy": "停電時に重要負荷へ給電できる容量を確認する",
+  "storageHours": 72
+}
