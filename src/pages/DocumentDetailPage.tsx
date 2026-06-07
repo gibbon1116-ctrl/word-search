@@ -6,6 +6,14 @@ import { PageHeader } from "../components/common/PageHeader";
 import { JA } from "../i18n/ja";
 import type { DocumentRecord } from "../models/DocumentRecord";
 import type { ExtractedChunk } from "../models/ExtractedChunk";
+import {
+  createExportFileName,
+  downloadBlob,
+  exportDocumentAsCsv,
+  exportDocumentAsJson,
+  exportDocumentAsMarkdown,
+  exportDocumentAsText,
+} from "../services/export/DocumentExportService";
 import { storageService } from "../services/storage/StorageService";
 import { formatDateTime } from "../utils/dateUtils";
 import { formatBytes } from "../utils/fileUtils";
@@ -40,6 +48,43 @@ export function DocumentDetailPage() {
     const normalized = normalizeForSearch(chunkQuery);
     return chunks.filter((chunk) => normalizeForSearch(`${chunk.heading ?? ""}\n${chunk.text}`).includes(normalized));
   }, [chunkQuery, chunks]);
+
+  function handleExport(format: "markdown" | "text" | "json" | "csv") {
+    if (!documentRecord) return;
+    const config = {
+      markdown: {
+        extension: "md",
+        mimeType: "text/markdown;charset=utf-8",
+        createContent: exportDocumentAsMarkdown,
+      },
+      text: {
+        extension: "txt",
+        mimeType: "text/plain;charset=utf-8",
+        createContent: exportDocumentAsText,
+      },
+      json: {
+        extension: "json",
+        mimeType: "application/json;charset=utf-8",
+        createContent: exportDocumentAsJson,
+      },
+      csv: {
+        extension: "csv",
+        mimeType: "text/csv;charset=utf-8",
+        createContent: exportDocumentAsCsv,
+      },
+    }[format];
+    const estimatedChars = chunks.reduce((total, chunk) => {
+      const correctedSearchText = typeof chunk.metadata.correctedSearchText === "string" ? chunk.metadata.correctedSearchText : "";
+      const originalOcrText = typeof chunk.metadata.originalOcrText === "string" ? chunk.metadata.originalOcrText : "";
+      return total + (correctedSearchText || originalOcrText || chunk.text).length;
+    }, 0);
+    if ((format === "json" || format === "csv") && estimatedChars > 500_000) {
+      const confirmed = window.confirm("出力内容が大きいため、作成に時間がかかる場合があります。このまま出力しますか？");
+      if (!confirmed) return;
+    }
+    const content = config.createContent(documentRecord, chunks);
+    downloadBlob(createExportFileName(documentRecord, config.extension), content, config.mimeType);
+  }
 
   if (isLoading) {
     return (
@@ -81,6 +126,25 @@ export function DocumentDetailPage() {
           OCR結果を確認・修正
         </Link>
       ) : null}
+
+      <section className="info-section">
+        <h2>OCR全文エクスポート</h2>
+        <p className="helper-text">PDF以外の資料も、保存済みチャンク本文を端末内でファイル出力できます。</p>
+        <div className="export-actions">
+          <button type="button" className="button secondary" onClick={() => handleExport("markdown")}>
+            OCR全文をMarkdownで出力
+          </button>
+          <button type="button" className="button secondary" onClick={() => handleExport("text")}>
+            OCR全文をTXTで出力
+          </button>
+          <button type="button" className="button secondary" onClick={() => handleExport("json")}>
+            OCR全文をJSONで出力
+          </button>
+          <button type="button" className="button secondary" onClick={() => handleExport("csv")}>
+            OCR全文をCSVで出力
+          </button>
+        </div>
+      </section>
 
       <section className="filter-panel">
         <label>

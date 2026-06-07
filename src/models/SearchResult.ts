@@ -36,6 +36,39 @@ export interface SearchResult {
   score: number;
 }
 
+export interface SearchDocumentSummary {
+  documentId: string;
+  fileName: string;
+  fileType: string;
+  importedAt: string;
+  totalHitCount: number;
+  matchedChunkCount: number;
+  matchedPageNumbers: number[];
+  matchedSheetNames: string[];
+  matchedHeadings: string[];
+  matchedTerms: string[];
+  topSnippet: string;
+  ocrUsed: boolean;
+  minOcrConfidence?: number;
+  maxScore: number;
+}
+
+export interface SearchTermSummary {
+  term: string;
+  hitCount: number;
+  pageNumbers: number[];
+  chunkIds: string[];
+  snippets: Array<{
+    chunkId: string;
+    pageNumber?: number;
+    sheetName?: string;
+    rowNumber?: number;
+    heading?: string;
+    snippet: string;
+    score: number;
+  }>;
+}
+
 export interface SearchIndexRecord {
   chunkId: string;
   documentId: string;
