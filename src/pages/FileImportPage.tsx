@@ -1,5 +1,5 @@
 import { Ban, FolderOpen, UploadCloud } from "lucide-react";
-import { ChangeEvent, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ImportStatusList } from "../components/fileImport/ImportStatusList";
 import { PageHeader } from "../components/common/PageHeader";
@@ -7,19 +7,35 @@ import { PrimaryButton } from "../components/common/PrimaryButton";
 import { JA } from "../i18n/ja";
 import { ACCEPT_ATTRIBUTE } from "../utils/fileUtils";
 import { importService, type ImportProgress, type ImportResult } from "../services/import/ImportService";
+import { storageService } from "../services/storage/StorageService";
 
 export function FileImportPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<ImportProgress>();
   const [results, setResults] = useState<ImportResult[]>([]);
   const [isImporting, setIsImporting] = useState(false);
-  const [usePdfOcr, setUsePdfOcr] = useState(false);
+  const [pdfOcrMode, setPdfOcrMode] = useState<"off" | "auto" | "force" | "highAccuracy">("off");
+  const [pdfOcrLanguage, setPdfOcrLanguage] = useState<"jpn" | "jpn+eng">("jpn+eng");
   const [pdfOcrTestOnly, setPdfOcrTestOnly] = useState(false);
   const abortControllerRef = useRef<AbortController>();
+
+  useEffect(() => {
+    storageService.getAppSettings().then((settings) => {
+      setPdfOcrLanguage(settings.pdfOcrLanguage ?? "jpn+eng");
+    }).catch(() => undefined);
+  }, []);
 
   async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
+    if (
+      pdfOcrMode === "highAccuracy" &&
+      !pdfOcrTestOnly &&
+      !window.confirm("高精度OCRは時間がかかり、iPhoneのメモリやバッテリーを多く使います。まず先頭3ページだけのテストOCRを推奨します。このまま実行しますか？")
+    ) {
+      event.target.value = "";
+      return;
+    }
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
     setIsImporting(true);
@@ -27,7 +43,8 @@ export function FileImportPage() {
     try {
       const importResults = await importService.importFiles(files, setProgress, {
         signal: abortController.signal,
-        usePdfOcr,
+        pdfOcrMode,
+        pdfOcrLanguage,
         pdfOcrTestOnly,
       });
       setResults(importResults);
@@ -63,27 +80,42 @@ export function FileImportPage() {
         <h2>{JA.descriptions.chooseDocuments}</h2>
         <p>{JA.descriptions.chooseDocumentsHelp}</p>
         <div className="option-stack">
-          <label className="check-option">
-            <input
-              type="checkbox"
-              checked={usePdfOcr}
+          <label>
+            PDF OCRモード
+            <select
+              value={pdfOcrMode}
               disabled={isImporting}
-              onChange={(event) => setUsePdfOcr(event.target.checked)}
-            />
-            <span>PDFで文字が読めない場合はOCRを使って登録する</span>
+              onChange={(event) => setPdfOcrMode(event.target.value as typeof pdfOcrMode)}
+            >
+              <option value="off">PDF文字層のみ（高速）</option>
+              <option value="auto">低品質ページだけOCR</option>
+              <option value="force">全ページOCR</option>
+              <option value="highAccuracy">高精度OCR（時間がかかります）</option>
+            </select>
+          </label>
+          <label>
+            OCR言語
+            <select
+              value={pdfOcrLanguage}
+              disabled={isImporting || pdfOcrMode === "off"}
+              onChange={(event) => setPdfOcrLanguage(event.target.value as typeof pdfOcrLanguage)}
+            >
+              <option value="jpn+eng">日本語 + 英語</option>
+              <option value="jpn">日本語のみ</option>
+            </select>
           </label>
           <label className="check-option">
             <input
               type="checkbox"
               checked={pdfOcrTestOnly}
-              disabled={isImporting || !usePdfOcr}
+              disabled={isImporting || pdfOcrMode === "off"}
               onChange={(event) => setPdfOcrTestOnly(event.target.checked)}
             />
             <span>テストOCRとして先頭3ページだけ登録する</span>
           </label>
-          {usePdfOcr ? (
+          {pdfOcrMode !== "off" ? (
             <p className="helper-text">
-              OCRは時間がかかります。長大PDFではiPhoneのバッテリーと保存容量に注意してください。OCR用データは必要時だけ読み込みます。
+              OCRは時間がかかります。特に高精度OCRや長大PDFでは、まず先頭3ページだけで精度を確認してください。OCR用データは必要時だけ読み込みます。
             </p>
           ) : null}
         </div>

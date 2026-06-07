@@ -168,7 +168,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 46px;
   border: 1px solid var(--line);
@@ -180,10 +181,18 @@ select {
 
 input:focus,
 select:focus,
+textarea:focus,
 button:focus-visible,
 a:focus-visible {
   outline: 3px solid rgba(15, 118, 110, 0.24);
   outline-offset: 2px;
+}
+
+textarea {
+  min-height: 180px;
+  resize: vertical;
+  line-height: 1.6;
+  font: inherit;
 }
 
 .search-row {
@@ -496,6 +505,16 @@ a:focus-visible {
   padding-left: 1.2rem;
   color: var(--ink);
   line-height: 1.7;
+}
+
+.low-confidence {
+  color: var(--danger);
+  font-weight: 800;
+}
+
+.ocr-review-list {
+  display: grid;
+  gap: 14px;
 }
 
 .status-banner {

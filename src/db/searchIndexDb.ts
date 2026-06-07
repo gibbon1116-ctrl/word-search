@@ -11,9 +11,18 @@ export function createSearchIndexRecords(document: DocumentRecord, chunks: Extra
     documentId: document.documentId,
     fileName: document.fileName,
     fileType: document.fileType,
-    normalizedText: normalizeForSearch([document.fileName, document.fileType, chunk.heading, chunk.text].filter(Boolean).join("\n")),
+    normalizedText: normalizeForSearch(
+      [document.fileName, document.fileType, chunk.heading, chunk.text, getMetadataText(chunk.metadata, "correctedSearchText")]
+        .filter(Boolean)
+        .join("\n"),
+    ),
     updatedAt: now,
   }));
+}
+
+function getMetadataText(metadata: Record<string, unknown>, key: string): string {
+  const value = metadata[key];
+  return typeof value === "string" ? value : "";
 }
 
 export async function getAllSearchIndexRecords(): Promise<SearchIndexRecord[]> {

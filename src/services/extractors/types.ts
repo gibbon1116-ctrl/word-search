@@ -15,7 +15,8 @@ export interface ExtractProgress {
 export interface ExtractOptions {
   signal?: AbortSignal;
   onProgress?: (progress: ExtractProgress) => void;
-  pdfOcrMode?: "disabled" | "auto";
+  pdfOcrMode?: "off" | "auto" | "force" | "highAccuracy";
+  pdfOcrLanguage?: "jpn" | "jpn+eng";
   pdfOcrTestOnly?: boolean;
 }
 

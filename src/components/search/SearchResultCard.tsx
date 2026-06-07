@@ -5,6 +5,7 @@ import type { SearchResult } from "../../models/SearchResult";
 import { SnippetText } from "./SnippetText";
 
 export function SearchResultCard({ result }: { result: SearchResult }) {
+  const ocrConfidence = typeof result.metadata.ocrConfidence === "number" ? result.metadata.ocrConfidence : undefined;
   return (
     <article className="result-card">
       <div className="result-header">
@@ -40,6 +41,15 @@ export function SearchResultCard({ result }: { result: SearchResult }) {
           <>
             <dt>{JA.labels.heading}</dt>
             <dd>{result.heading}</dd>
+          </>
+        ) : null}
+        {ocrConfidence !== undefined ? (
+          <>
+            <dt>OCR信頼度</dt>
+            <dd className={ocrConfidence < 55 ? "low-confidence" : undefined}>
+              {Math.round(ocrConfidence)}%
+              {ocrConfidence < 55 ? "（低め）" : ""}
+            </dd>
           </>
         ) : null}
       </dl>

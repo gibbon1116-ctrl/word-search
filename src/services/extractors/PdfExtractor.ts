@@ -20,6 +20,11 @@ interface PdfPageExtraction {
   textItemCount: number;
   source: ExtractionSource;
   quality: PdfPageQuality;
+  ocrConfidence?: number;
+  ocrScale?: number;
+  ocrLanguage?: string;
+  ocrPreprocessMode?: string;
+  ocrCandidateCount?: number;
 }
 
 interface PdfPageQuality {
@@ -77,13 +82,15 @@ export class PdfExtractor implements DocumentExtractor {
     }
 
     const pdfQuality = summarizePdfQuality(pageExtractions, file.name);
-    if (pdfQuality.lowQuality && options.pdfOcrMode !== "auto") {
+    if (pdfQuality.lowQuality && options.pdfOcrMode === "off") {
       throw new Error(createPdfFailureMessage(pdfQuality, false));
     }
 
     const shouldRunOcr =
-      options.pdfOcrMode === "auto" &&
-      (pdfQuality.lowQuality || pageExtractions.some((page) => page.source === "none" || page.quality.lowQuality));
+      options.pdfOcrMode === "force" ||
+      options.pdfOcrMode === "highAccuracy" ||
+      (options.pdfOcrMode === "auto" &&
+        (pdfQuality.lowQuality || pageExtractions.some((page) => page.source === "none" || page.quality.lowQuality)));
 
     if (shouldRunOcr) {
       await runOcrFallback(pdf, pageExtractions, options);
@@ -105,7 +112,14 @@ export class PdfExtractor implements DocumentExtractor {
           pageNumber: page.pageNumber,
           extractionSource: page.source,
           ocrUsed: page.source === "ocr",
+          ocrConfidence: page.ocrConfidence,
+          ocrScale: page.ocrScale,
+          ocrLanguage: page.ocrLanguage,
+          ocrPreprocessMode: page.ocrPreprocessMode,
+          ocrCandidateCount: page.ocrCandidateCount,
           textQualityScore: page.quality.textQualityScore,
+          correctedSearchText: page.source === "ocr" ? applyOcrDictionaryCorrections(page.text) : undefined,
+          originalOcrText: page.source === "ocr" ? page.text : undefined,
           pdfDiagnostics: page.quality,
         },
       })),
@@ -141,11 +155,13 @@ async function runOcrFallback(
 ): Promise<void> {
   const maxPages = options.pdfOcrTestOnly ? Math.min(3, pdf.numPages) : pdf.numPages;
   const tesseract = await import("tesseract.js");
+  const mode = options.pdfOcrMode ?? "auto";
+  const language = options.pdfOcrLanguage ?? "jpn+eng";
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     assertNotAborted(options.signal);
     const current = pageExtractions[pageIndex];
-    if (current.text && !current.quality.lowQuality) {
+    if (mode === "auto" && current.text && !current.quality.lowQuality) {
       continue;
     }
 
@@ -158,36 +174,80 @@ async function runOcrFallback(
     });
 
     const page = await pdf.getPage(pageNumber);
-    const canvas = await renderPageToCanvas(page);
-    const result = await tesseract.recognize(canvas, "jpn", {
-      logger: (event) => {
-        if (event.status === "recognizing text") {
-          const percent = Math.round((event.progress ?? 0) * 100);
-          options.onProgress?.({
-            stage: "ocr",
-            pageNumber,
-            totalPages: maxPages,
-            message: `OCRで文字を読み取っています。${pageNumber} / ${maxPages}ページ（${percent}%）`,
-          });
-        }
-      },
-    });
-    const ocrText = compactWhitespace(result.data.text);
-    if (ocrText) {
+    const candidates = createOcrCandidates(mode);
+    let best: PdfPageExtraction | undefined;
+
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      assertNotAborted(options.signal);
+      const candidate = candidates[candidateIndex];
+      const rendered = await renderPageToCanvas(page, candidate.scale);
+      const canvas = candidate.preprocessMode === "none" ? rendered.canvas : preprocessOcrCanvas(rendered.canvas, candidate.preprocessMode);
+      const result = await tesseract.recognize(canvas, language, {
+        logger: (event) => {
+          if (event.status === "recognizing text") {
+            const percent = Math.round((event.progress ?? 0) * 100);
+            options.onProgress?.({
+              stage: "ocr",
+              pageNumber,
+              totalPages: maxPages,
+              message: `OCRで文字を読み取っています。${pageNumber} / ${maxPages}ページ（候補${candidateIndex + 1}/${candidates.length}・${percent}%）`,
+            });
+          }
+        },
+      });
+      const ocrText = compactWhitespace(result.data.text);
+      if (!ocrText) {
+        continue;
+      }
       const quality = evaluatePageQuality(pageNumber, 0, ocrText, "ocr");
-      pageExtractions[pageIndex] = {
+      quality.textQualityScore = Math.max(0, Math.min(1, quality.textQualityScore + ((result.data.confidence ?? 0) / 100) * 0.18));
+      const extraction: PdfPageExtraction = {
         pageNumber,
         text: ocrText,
         textItemCount: 0,
         source: "ocr",
         quality,
+        ocrConfidence: result.data.confidence,
+        ocrScale: rendered.scale,
+        ocrLanguage: language,
+        ocrPreprocessMode: candidate.preprocessMode,
+        ocrCandidateCount: candidates.length,
       };
+      if (!best || extraction.quality.textQualityScore > best.quality.textQualityScore) {
+        best = extraction;
+      }
+      if (mode !== "highAccuracy") {
+        break;
+      }
+    }
+
+    if (best) {
+      pageExtractions[pageIndex] = best;
     }
   }
 }
 
-async function renderPageToCanvas(page: PDFPageProxy): Promise<HTMLCanvasElement> {
-  const viewport = page.getViewport({ scale: 2 });
+const MAX_OCR_PIXELS = 9_000_000;
+
+type OcrPreprocessMode = "none" | "contrast" | "binary" | "sharpBinary";
+
+function createOcrCandidates(mode: ExtractOptions["pdfOcrMode"]): Array<{ scale: number; preprocessMode: OcrPreprocessMode }> {
+  if (mode === "highAccuracy") {
+    return [
+      { scale: 3, preprocessMode: "none" },
+      { scale: 3, preprocessMode: "contrast" },
+      { scale: 3, preprocessMode: "binary" },
+      { scale: 4, preprocessMode: "sharpBinary" },
+    ];
+  }
+  return [{ scale: 2, preprocessMode: "none" }];
+}
+
+async function renderPageToCanvas(page: PDFPageProxy, requestedScale: number): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
+  const baseViewport = page.getViewport({ scale: 1 });
+  const maxScale = Math.sqrt(MAX_OCR_PIXELS / Math.max(baseViewport.width * baseViewport.height, 1));
+  const scale = Math.max(1.5, Math.min(requestedScale, maxScale));
+  const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
@@ -196,7 +256,85 @@ async function renderPageToCanvas(page: PDFPageProxy): Promise<HTMLCanvasElement
     throw new Error("OCR用の画像を作成できませんでした。ブラウザを再読み込みしてから再度お試しください。");
   }
   await page.render({ canvasContext: context, viewport }).promise;
-  return canvas;
+  return { canvas, scale };
+}
+
+function preprocessOcrCanvas(canvas: HTMLCanvasElement, mode: OcrPreprocessMode): HTMLCanvasElement {
+  const next = document.createElement("canvas");
+  next.width = canvas.width;
+  next.height = canvas.height;
+  const sourceContext = canvas.getContext("2d");
+  const targetContext = next.getContext("2d");
+  if (!sourceContext || !targetContext) {
+    return canvas;
+  }
+  const image = sourceContext.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    let value = gray;
+    if (mode === "contrast" || mode === "binary" || mode === "sharpBinary") {
+      value = Math.max(0, Math.min(255, (gray - 128) * 1.55 + 128));
+    }
+    if (mode === "binary" || mode === "sharpBinary") {
+      value = value > 172 ? 255 : 0;
+    }
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+  }
+  targetContext.putImageData(image, 0, 0);
+  return mode === "sharpBinary" ? sharpenCanvas(next) : trimCanvasWhitespace(next);
+}
+
+function sharpenCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const trimmed = trimCanvasWhitespace(canvas);
+  const context = trimmed.getContext("2d");
+  if (!context) {
+    return trimmed;
+  }
+  context.filter = "contrast(115%)";
+  context.drawImage(trimmed, 0, 0);
+  context.filter = "none";
+  return trimmed;
+}
+
+function trimCanvasWhitespace(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return canvas;
+  }
+  const { width, height } = canvas;
+  const image = context.getImageData(0, 0, width, height);
+  const data = image.data;
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      if (data[index] < 245 || data[index + 1] < 245 || data[index + 2] < 245) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+  if (minX >= maxX || minY >= maxY) {
+    return canvas;
+  }
+  const padding = 18;
+  const sx = Math.max(0, minX - padding);
+  const sy = Math.max(0, minY - padding);
+  const sw = Math.min(width - sx, maxX - minX + padding * 2);
+  const sh = Math.min(height - sy, maxY - minY + padding * 2);
+  const next = document.createElement("canvas");
+  next.width = sw;
+  next.height = sh;
+  next.getContext("2d")?.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return next;
 }
 
 function buildPdfPageText(items: unknown[]): string {
@@ -326,6 +464,60 @@ function ratio(text: string, pattern: RegExp): number {
   }
   const matches = text.match(pattern);
   return (matches?.join("").length ?? 0) / text.length;
+}
+
+const TECHNICAL_TERMS = [
+  "屋内配線",
+  "電気設備",
+  "分岐回路",
+  "電圧降下",
+  "内線規程",
+  "受変電設備",
+  "幹線設備",
+  "コンセント",
+  "照明器具",
+  "配線用遮断器",
+  "漏電遮断器",
+  "接地",
+  "単相3線式",
+  "三相3線式",
+  "JIS",
+  "LAN",
+  "Hf蛍光ランプ",
+];
+
+function applyOcrDictionaryCorrections(text: string): string {
+  const normalizedText = text.normalize("NFKC");
+  const additions = TECHNICAL_TERMS.filter((term) => {
+    const normalizedTerm = term.normalize("NFKC");
+    return normalizedText.includes(normalizedTerm) || isNearTermHit(normalizedText, normalizedTerm);
+  });
+  return additions.length ? `${text}\n${additions.join(" ")}` : text;
+}
+
+function isNearTermHit(text: string, term: string): boolean {
+  const compactText = text.replace(/\s+/g, "");
+  const compactTerm = term.replace(/\s+/g, "");
+  if (compactText.includes(compactTerm)) {
+    return true;
+  }
+  const grams = createGrams(compactTerm, compactTerm.length > 4 ? 3 : 2);
+  if (!grams.length) {
+    return false;
+  }
+  const hitCount = grams.filter((gram) => compactText.includes(gram)).length;
+  return hitCount / grams.length >= 0.72;
+}
+
+function createGrams(text: string, size: number): string[] {
+  if (text.length <= size) {
+    return [text];
+  }
+  const grams: string[] = [];
+  for (let index = 0; index <= text.length - size; index += 1) {
+    grams.push(text.slice(index, index + size));
+  }
+  return grams;
 }
 
 function shouldInsertSeparator(previous: string, next: string): boolean {

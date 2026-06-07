@@ -29,7 +29,8 @@ export interface ImportResult {
 
 export interface ImportOptions {
   signal?: AbortSignal;
-  usePdfOcr?: boolean;
+  pdfOcrMode?: ExtractOptions["pdfOcrMode"];
+  pdfOcrLanguage?: ExtractOptions["pdfOcrLanguage"];
   pdfOcrTestOnly?: boolean;
 }
 
@@ -62,7 +63,8 @@ export class ImportService {
         }
         const extractOptions: ExtractOptions = {
           signal: options.signal,
-          pdfOcrMode: options.usePdfOcr ? "auto" : "disabled",
+          pdfOcrMode: options.pdfOcrMode ?? "off",
+          pdfOcrLanguage: options.pdfOcrLanguage ?? "jpn+eng",
           pdfOcrTestOnly: options.pdfOcrTestOnly,
           onProgress: (detail) => {
             onProgress?.({

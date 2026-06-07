@@ -93,6 +93,10 @@ export async function getChunk(chunkId: string): Promise<ExtractedChunk | undefi
   return getByKey<ExtractedChunk>(STORES.chunks, chunkId);
 }
 
+export async function saveChunk(chunk: ExtractedChunk): Promise<void> {
+  await putMany(STORES.chunks, [chunk]);
+}
+
 export async function getAllDocuments(): Promise<DocumentRecord[]> {
   const documents = await getAllFromStore<DocumentRecord>(STORES.documents);
   return documents.sort((a, b) => b.importedAt.localeCompare(a.importedAt));
@@ -173,6 +177,7 @@ export async function getAppSettings(): Promise<AppSettings> {
     searchHistory: [],
     snippetBeforeChars: 100,
     snippetAfterChars: 100,
+    pdfOcrLanguage: "jpn+eng",
     createdAt: now,
     updatedAt: now,
   };

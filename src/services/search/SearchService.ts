@@ -18,8 +18,12 @@ export class SearchService {
     for (const document of filteredDocuments) {
       const chunks = await getChunksByDocument(document.documentId);
       for (const chunk of chunks) {
-        const normalizedTarget = normalizeForSearch([document.fileName, chunk.heading, chunk.text].filter(Boolean).join("\n"));
-        if (!keywords.every((keyword) => normalizedTarget.includes(keyword))) {
+        const correctedSearchText =
+          typeof chunk.metadata.correctedSearchText === "string" ? chunk.metadata.correctedSearchText : "";
+        const normalizedTarget = normalizeForSearch(
+          [document.fileName, chunk.heading, chunk.text, correctedSearchText].filter(Boolean).join("\n"),
+        );
+        if (!keywords.every((keyword) => normalizedTarget.includes(keyword) || fuzzyKeywordMatch(normalizedTarget, keyword))) {
           continue;
         }
         const chunkResults = this.snippetService.createResultsForChunk({
@@ -48,6 +52,24 @@ export class SearchService {
     });
     return limited;
   }
+}
+
+function fuzzyKeywordMatch(target: string, keyword: string): boolean {
+  const compactTarget = target.replace(/\s+/g, "");
+  const compactKeyword = keyword.replace(/\s+/g, "");
+  if (compactKeyword.length < 4) {
+    return false;
+  }
+  const size = compactKeyword.length >= 6 ? 3 : 2;
+  const grams: string[] = [];
+  for (let index = 0; index <= compactKeyword.length - size; index += 1) {
+    grams.push(compactKeyword.slice(index, index + size));
+  }
+  if (!grams.length) {
+    return false;
+  }
+  const hits = grams.filter((gram) => compactTarget.includes(gram)).length;
+  return hits / grams.length >= 0.72;
 }
 
 function matchesDocumentFilters(document: DocumentRecord, criteria: SearchCriteria): boolean {

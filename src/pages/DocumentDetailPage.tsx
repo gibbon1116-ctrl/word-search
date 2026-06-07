@@ -76,6 +76,11 @@ export function DocumentDetailPage() {
       </section>
 
       <PdfDiagnosticsPanel metadata={documentRecord.metadata} />
+      {chunks.some((chunk) => chunk.metadata.ocrUsed) ? (
+        <Link className="button secondary link-button" to={`/documents/${documentId}/ocr`}>
+          OCR結果を確認・修正
+        </Link>
+      ) : null}
 
       <section className="filter-panel">
         <label>

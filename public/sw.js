@@ -1,4 +1,4 @@
-const CACHE_NAME = "local-document-search-pwa-v4";
+const CACHE_NAME = "local-document-search-pwa-v5";
 const APP_SHELL = ["./", "./index.html", "./manifest.json"];
 const PDFJS_ASSETS = [
   "./pdfjs/cmaps/Adobe-Japan1-UCS2.bcmap",

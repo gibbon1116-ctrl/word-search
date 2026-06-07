@@ -114,6 +114,16 @@ export function SettingsPage() {
               />
             </label>
           </div>
+          <label>
+            OCR言語
+            <select
+              value={settings.pdfOcrLanguage ?? "jpn+eng"}
+              onChange={(event) => setSettings({ ...settings, pdfOcrLanguage: event.target.value as "jpn" | "jpn+eng" })}
+            >
+              <option value="jpn+eng">日本語 + 英語</option>
+              <option value="jpn">日本語のみ</option>
+            </select>
+          </label>
           <PrimaryButton type="button" variant="secondary" onClick={saveSnippetSettings}>
             {JA.labels.saveSettings}
           </PrimaryButton>

@@ -12,6 +12,9 @@ export function normalizeForSearch(text: string): string {
     .replace(/([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])\s+([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])/gu, "$1$2")
     .replace(/([a-z0-9])\s+([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])/gu, "$1$2")
     .replace(/([\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}])\s+([a-z0-9])/gu, "$1$2")
+    .replace(/[|｜¦¬~˜ˆ´`¨^＿_]+/g, "")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/[·•●○◎]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }

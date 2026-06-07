@@ -3,6 +3,7 @@ export interface AppSettings {
   searchHistory: string[];
   snippetBeforeChars: number;
   snippetAfterChars: number;
+  pdfOcrLanguage?: "jpn" | "jpn+eng";
   lastIndexRebuiltAt?: string;
   createdAt: string;
   updatedAt: string;

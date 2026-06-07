@@ -29,6 +29,40 @@ export class SnippetService {
     const fullText = params.chunks.map((chunk) => chunk.text).join("\n\n");
     const matches = findMatches(params.chunk.text, params.keywords).slice(0, maxMatches);
 
+    if (!matches.length) {
+      const fallbackSnippet = params.chunk.text.slice(0, beforeChars + afterChars);
+      return [{
+        resultId: createId("result_fuzzy"),
+        documentId: params.chunk.documentId,
+        chunkId: params.chunk.chunkId,
+        fileName: params.fileName,
+        fileType: params.fileType,
+        matchedText: params.keywords[0] ?? "",
+        snippetBefore: "",
+        snippetAfter: fallbackSnippet,
+        snippet: `${fallbackSnippet}${params.chunk.text.length > fallbackSnippet.length ? "..." : ""}`,
+        matchStart: params.chunk.startOffset,
+        matchEnd: params.chunk.startOffset,
+        pageNumber: params.chunk.pageNumber,
+        sheetName: params.chunk.sheetName,
+        rowNumber: params.chunk.rowNumber,
+        cellRange: params.chunk.cellRange,
+        heading: params.chunk.heading,
+        metadata: {
+          ...params.chunk.metadata,
+          hasLeadingEllipsis: false,
+          hasTrailingEllipsis: params.chunk.text.length > fallbackSnippet.length,
+          centeredKeyword: params.keywords[0] ?? "",
+          chunkIndex: params.chunk.chunkIndex,
+          fuzzySearchHit: true,
+        },
+        highlightRanges: [],
+        hasLeadingEllipsis: false,
+        hasTrailingEllipsis: params.chunk.text.length > fallbackSnippet.length,
+        score: 0.55,
+      }];
+    }
+
     return matches.map((match, index) => {
       const globalStart = params.chunk.startOffset + match.localStart;
       const globalEnd = params.chunk.startOffset + match.localEnd;
