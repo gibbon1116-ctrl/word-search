@@ -578,12 +578,6 @@ textarea {
   color: var(--ink);
 }
 
-.summary-warning {
-  min-height: 38px;
-  padding: 8px 10px;
-  font-size: 0.88rem;
-}
-
 .result-header {
   display: grid;
   justify-items: start;
