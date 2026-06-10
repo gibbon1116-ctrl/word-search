@@ -584,6 +584,18 @@ textarea {
   gap: 4px;
 }
 
+.match-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: #0b5f59;
+  background: var(--accent-soft);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .evidence-list {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -738,6 +750,50 @@ mark {
     monospace;
   font-size: 0.86rem;
   line-height: 1.65;
+}
+
+.chunk-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.chunk-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.chunk-table th,
+.chunk-table td {
+  min-width: 88px;
+  max-width: 280px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.chunk-table thead th,
+.chunk-table tbody th {
+  position: sticky;
+  background: var(--surface);
+  font-weight: 800;
+}
+
+.chunk-table thead th {
+  top: 0;
+  z-index: 1;
+}
+
+.chunk-table tbody th {
+  left: 0;
+  z-index: 1;
+  color: var(--muted);
 }
 
 .metadata-pre {

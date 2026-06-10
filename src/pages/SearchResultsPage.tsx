@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
@@ -36,6 +37,8 @@ export function SearchResultsPage() {
   }, [query, fileType, fileName]);
 
   const resultCount = documentSummaries.length;
+  const titleMatchedSummaries = useMemo(() => documentSummaries.filter((summary) => summary.titleMatched), [documentSummaries]);
+  const contentMatchedSummaries = useMemo(() => documentSummaries.filter((summary) => !summary.titleMatched), [documentSummaries]);
   const documentResultParams = new URLSearchParams(searchParams);
   documentResultParams.delete("view");
 
@@ -57,11 +60,35 @@ export function SearchResultsPage() {
       {isLoading ? <div className="status-banner">{JA.messages.searching}</div> : null}
 
       {!isLoading && documentSummaries.length ? (
-        <div className="card-list">
-          {documentSummaries.map((summary) => (
-            <SearchDocumentSummaryCard key={summary.documentId} summary={summary} searchParams={documentResultParams} />
-          ))}
-        </div>
+        <>
+          {titleMatchedSummaries.length ? (
+            <section>
+              <div className="section-heading">
+                <h2>タイトルに一致した書籍</h2>
+                <span>{titleMatchedSummaries.length}件</span>
+              </div>
+              <div className="card-list">
+                {titleMatchedSummaries.map((summary) => (
+                  <SearchDocumentSummaryCard key={summary.documentId} summary={summary} searchParams={documentResultParams} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {contentMatchedSummaries.length ? (
+            <section>
+              <div className="section-heading">
+                <h2>本文に一致した書籍</h2>
+                <span>{contentMatchedSummaries.length}件</span>
+              </div>
+              <div className="card-list">
+                {contentMatchedSummaries.map((summary) => (
+                  <SearchDocumentSummaryCard key={summary.documentId} summary={summary} searchParams={documentResultParams} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </>
       ) : null}
 
       {!isLoading && !resultCount ? <EmptyState title={JA.messages.noSearchResults} /> : null}

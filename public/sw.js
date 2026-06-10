@@ -1,4 +1,4 @@
-const CACHE_NAME = "local-document-search-pwa-v8";
+const CACHE_NAME = "local-document-search-pwa-v9";
 const APP_SHELL = ["./", "./index.html", "./manifest.json"];
 const PDFJS_ASSETS = [
   "./pdfjs/cmaps/Adobe-Japan1-UCS2.bcmap",
@@ -26,6 +26,15 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") {
+    return;
+  }
+
+  const url = new URL(request.url);
+  const isLocalDev =
+    ["localhost", "127.0.0.1", "::1"].includes(url.hostname) &&
+    (url.pathname.startsWith("/src/") || url.pathname.startsWith("/node_modules/") || url.pathname === "/@vite/client");
+  if (isLocalDev) {
+    event.respondWith(fetch(request));
     return;
   }
 

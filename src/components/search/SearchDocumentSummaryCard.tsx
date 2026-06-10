@@ -10,10 +10,19 @@ export function SearchDocumentSummaryCard({ summary, searchParams }: { summary: 
       <Link className="summary-card-link" to={`/search/results/${summary.documentId}?${params.toString()}`}>
         <div className="result-header">
           <h2>{summary.fileName}</h2>
+          {summary.titleMatched ? <span className="match-badge">タイトルに一致</span> : null}
         </div>
         <dl className="evidence-list">
+          <dt>本文ヒット</dt>
+          <dd>{summary.contentHitCount.toLocaleString("ja-JP")}件</dd>
           <dt>ヒット件数</dt>
           <dd>{summary.totalHitCount.toLocaleString("ja-JP")}件</dd>
+          {summary.titleMatched && summary.titleMatchText ? (
+            <>
+              <dt>一致タイトル</dt>
+              <dd>{summary.titleMatchText}</dd>
+            </>
+          ) : null}
           <dt>OCR</dt>
           <dd>
             {summary.ocrUsed ? "使用あり" : "使用なし"}

@@ -41,6 +41,9 @@ export interface SearchDocumentSummary {
   fileName: string;
   fileType: string;
   importedAt: string;
+  titleMatched: boolean;
+  titleMatchText?: string;
+  contentHitCount: number;
   totalHitCount: number;
   matchedChunkCount: number;
   matchedPageNumbers: number[];

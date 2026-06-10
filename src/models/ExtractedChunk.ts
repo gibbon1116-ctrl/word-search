@@ -1,4 +1,13 @@
-export type ChunkType = "text" | "markdown" | "pdf-page" | "csv-row" | "excel-row" | "word-block" | "html-block" | "json";
+export type ChunkType =
+  | "text"
+  | "markdown"
+  | "pdf-page"
+  | "csv-row"
+  | "excel-row"
+  | "excel-sheet"
+  | "word-block"
+  | "html-block"
+  | "json";
 
 export type ChunkMetadata = Record<string, unknown>;
 

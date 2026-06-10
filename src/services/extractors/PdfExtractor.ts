@@ -12,7 +12,32 @@ type ExtractionSource = "pdfjs" | "ocr" | "none";
 type PdfTextItem = {
   str: string;
   hasEOL?: boolean;
+  transform?: number[];
+  width?: number;
 };
+
+interface PdfPageLayout {
+  text: string;
+  tableRows?: string[][];
+  tableColumnLabels?: string[];
+}
+
+interface PdfPositionedTextItem {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
+interface PdfLayoutRow {
+  y: number;
+  items: PdfPositionedTextItem[];
+}
+
+interface PdfTableColumn {
+  label: string;
+  x: number;
+}
 
 interface PdfPageExtraction {
   pageNumber: number;
@@ -25,6 +50,8 @@ interface PdfPageExtraction {
   ocrLanguage?: string;
   ocrPreprocessMode?: string;
   ocrCandidateCount?: number;
+  tableRows?: string[][];
+  tableColumnLabels?: string[];
 }
 
 interface PdfPageQuality {
@@ -70,14 +97,16 @@ export class PdfExtractor implements DocumentExtractor {
 
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent({ includeMarkedContent: false, disableNormalization: false });
-      const text = buildPdfPageText(textContent.items);
-      const quality = evaluatePageQuality(pageNumber, textContent.items.length, text, "pdfjs");
+      const layout = buildPdfPageLayout(textContent.items);
+      const quality = evaluatePageQuality(pageNumber, textContent.items.length, layout.text, "pdfjs");
       pageExtractions.push({
         pageNumber,
-        text,
+        text: layout.text,
         textItemCount: textContent.items.length,
-        source: text ? "pdfjs" : "none",
+        source: layout.text ? "pdfjs" : "none",
         quality,
+        tableRows: layout.tableRows,
+        tableColumnLabels: layout.tableColumnLabels,
       });
     }
 
@@ -120,6 +149,10 @@ export class PdfExtractor implements DocumentExtractor {
           textQualityScore: page.quality.textQualityScore,
           correctedSearchText: page.source === "ocr" ? applyOcrDictionaryCorrections(page.text) : undefined,
           originalOcrText: page.source === "ocr" ? page.text : undefined,
+          tableKind: page.tableRows ? "pdf-layout" : undefined,
+          tableRows: page.tableRows,
+          tableColumnLabels: page.tableColumnLabels,
+          tableStartRowNumber: page.tableRows ? 1 : undefined,
           pdfDiagnostics: page.quality,
         },
       })),
@@ -337,7 +370,41 @@ function trimCanvasWhitespace(canvas: HTMLCanvasElement): HTMLCanvasElement {
   return next;
 }
 
-function buildPdfPageText(items: unknown[]): string {
+function buildPdfPageLayout(items: unknown[]): PdfPageLayout {
+  const positionedItems = items
+    .filter(isPositionedPdfTextItem)
+    .map((item) => ({
+      text: item.str.trim(),
+      x: item.transform[4],
+      y: item.transform[5],
+      width: item.width ?? estimateTextWidth(item.str),
+    }))
+    .filter((item) => item.text);
+
+  if (!positionedItems.length) {
+    return { text: buildPdfFallbackText(items) };
+  }
+
+  const rowBuckets: PdfLayoutRow[] = [];
+  for (const item of positionedItems.sort((a, b) => b.y - a.y || a.x - b.x)) {
+    const row = rowBuckets.find((candidate) => Math.abs(candidate.y - item.y) <= 4);
+    if (row) {
+      row.items.push(item);
+      row.y = (row.y + item.y) / 2;
+    } else {
+      rowBuckets.push({ y: item.y, items: [item] });
+    }
+  }
+
+  const layoutRows = rowBuckets.sort((a, b) => b.y - a.y);
+  const fallbackRows = layoutRows.map((row) => createPdfLayoutCells(row.items)).filter((row) => row.some(Boolean));
+  const table = createPdfTable(layoutRows, fallbackRows);
+  const rows = table?.rows ?? fallbackRows;
+  const text = rows.map((row) => row.join(table ? "\t" : " ")).join("\n").trim();
+  return { text, tableRows: table?.rows, tableColumnLabels: table?.columnLabels };
+}
+
+function buildPdfFallbackText(items: unknown[]): string {
   let text = "";
   for (const item of items) {
     if (!isPdfTextItem(item)) {
@@ -361,6 +428,180 @@ function buildPdfPageText(items: unknown[]): string {
 
 function isPdfTextItem(item: unknown): item is PdfTextItem {
   return typeof item === "object" && item !== null && "str" in item && typeof (item as PdfTextItem).str === "string";
+}
+
+function isPositionedPdfTextItem(item: unknown): item is PdfTextItem & { transform: number[] } {
+  return (
+    isPdfTextItem(item) &&
+    Array.isArray(item.transform) &&
+    item.transform.length >= 6 &&
+    typeof item.transform[4] === "number" &&
+    typeof item.transform[5] === "number"
+  );
+}
+
+function createPdfLayoutCells(items: Array<{ text: string; x: number; width: number }>): string[] {
+  const sortedItems = items.sort((a, b) => a.x - b.x);
+  const cells: string[] = [];
+  let previousRight = Number.NEGATIVE_INFINITY;
+
+  for (const item of sortedItems) {
+    const gap = item.x - previousRight;
+    const startsNewCell = cells.length === 0 || gap > 12;
+    if (startsNewCell) {
+      cells.push(item.text);
+    } else {
+      const current = cells[cells.length - 1];
+      const separator = shouldInsertSeparator(current.charAt(current.length - 1), item.text[0]) ? " " : "";
+      cells[cells.length - 1] = `${current}${separator}${item.text}`;
+    }
+    previousRight = Math.max(previousRight, item.x + Math.max(item.width, estimateTextWidth(item.text)));
+  }
+
+  return cells;
+}
+
+function createPdfTable(
+  layoutRows: PdfLayoutRow[],
+  fallbackRows: string[][],
+): { rows: string[][]; columnLabels?: string[] } | undefined {
+  const columns = inferEstimateTableColumns(layoutRows);
+  if (!columns.length) {
+    return isTableLikeLayout(fallbackRows) ? { rows: fallbackRows } : undefined;
+  }
+
+  const rows = layoutRows
+    .filter((row) => !isEstimateHeaderRow(row.items))
+    .map((row) => assignItemsToColumns(row.items, columns))
+    .filter((row) => row.some(Boolean));
+
+  if (!isTableLikeLayout(rows)) {
+    return isTableLikeLayout(fallbackRows) ? { rows: fallbackRows } : undefined;
+  }
+
+  return {
+    rows,
+    columnLabels: columns.map((column) => column.label),
+  };
+}
+
+function inferEstimateTableColumns(rows: PdfLayoutRow[]): PdfTableColumn[] {
+  const headerRow = rows.find((row) => isEstimateHeaderRow(row.items));
+  if (!headerRow) {
+    return [];
+  }
+
+  const allItems = rows.flatMap((row) => row.items);
+  const clusters = createXClusters(allItems);
+  const headerTextX = createHeaderTextXMap(headerRow.items);
+  const minX = Math.min(...allItems.map((item) => item.x));
+  const quantityTarget = getAverageX(headerTextX, ["数", "量"], minX + 225) + 28;
+  const unitTarget = headerTextX.get("単位") ?? getAverageX(headerTextX, ["単", "位"], quantityTarget + 24);
+  const unitPriceTarget = headerTextX.get("価") ?? getAverageX(headerTextX, ["単", "価"], unitTarget + 50);
+  const amountTarget = headerTextX.get("額") ?? getAverageX(headerTextX, ["金", "額"], unitPriceTarget + 70);
+
+  const columns: PdfTableColumn[] = [
+    { label: "名称", x: chooseClusterX(clusters, minX, minX - 4, minX + 24) },
+    { label: "摘要", x: chooseClusterX(clusters, (headerTextX.get("摘") ?? minX + 82) - 30, minX + 36, quantityTarget - 40) },
+    { label: "数量", x: chooseClusterX(clusters, quantityTarget, quantityTarget - 45, quantityTarget + 18) },
+    { label: "単位", x: chooseClusterX(clusters, unitTarget, unitTarget - 16, unitTarget + 18) },
+    { label: "単価", x: chooseClusterX(clusters, unitPriceTarget, unitPriceTarget - 24, unitPriceTarget + 24) },
+    { label: "金額", x: chooseClusterX(clusters, amountTarget, amountTarget - 32, amountTarget + 24) },
+    { label: "備考", x: chooseClusterX(clusters, headerTextX.get("備") ?? amountTarget + 58, amountTarget + 24, amountTarget + 120) },
+  ];
+
+  const uniqueColumns: PdfTableColumn[] = [];
+  for (const column of columns.sort((a, b) => a.x - b.x)) {
+    const previous = uniqueColumns[uniqueColumns.length - 1];
+    if (!previous || Math.abs(previous.x - column.x) > 12) {
+      uniqueColumns.push(column);
+    }
+  }
+  return uniqueColumns.length >= 4 ? uniqueColumns : [];
+}
+
+function assignItemsToColumns(items: PdfPositionedTextItem[], columns: PdfTableColumn[]): string[] {
+  const cells = Array.from({ length: columns.length }, () => "");
+  for (const item of items.sort((a, b) => a.x - b.x)) {
+    const columnIndex = findNearestColumnIndex(item.x, columns);
+    const current = cells[columnIndex];
+    const separator = current && shouldInsertSeparator(current.charAt(current.length - 1), item.text[0]) ? " " : "";
+    cells[columnIndex] = `${current}${separator}${item.text}`;
+  }
+  return cells;
+}
+
+function findNearestColumnIndex(x: number, columns: PdfTableColumn[]): number {
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < columns.length; index += 1) {
+    const distance = Math.abs(x - columns[index].x);
+    if (distance < bestDistance) {
+      bestIndex = index;
+      bestDistance = distance;
+    }
+  }
+  return bestIndex;
+}
+
+function isEstimateHeaderRow(items: PdfPositionedTextItem[]): boolean {
+  const compactText = items
+    .map((item) => item.text)
+    .join("")
+    .replace(/\s+/g, "");
+  return compactText.includes("名称摘要数量単位単価金額備考");
+}
+
+function createHeaderTextXMap(items: PdfPositionedTextItem[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const item of items) {
+    map.set(item.text, item.x);
+  }
+  return map;
+}
+
+function getAverageX(map: Map<string, number>, keys: string[], fallback: number): number {
+  const values = keys.map((key) => map.get(key)).filter((value): value is number => typeof value === "number");
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : fallback;
+}
+
+function createXClusters(items: PdfPositionedTextItem[]): Array<{ x: number; count: number }> {
+  const clusters: Array<{ x: number; count: number }> = [];
+  for (const item of items.sort((a, b) => a.x - b.x)) {
+    const cluster = clusters.find((candidate) => Math.abs(candidate.x - item.x) <= 5);
+    if (cluster) {
+      cluster.x = (cluster.x * cluster.count + item.x) / (cluster.count + 1);
+      cluster.count += 1;
+    } else {
+      clusters.push({ x: item.x, count: 1 });
+    }
+  }
+  return clusters;
+}
+
+function chooseClusterX(clusters: Array<{ x: number; count: number }>, target: number, minX: number, maxX: number): number {
+  const candidates = clusters.filter((cluster) => cluster.x >= minX && cluster.x <= maxX);
+  if (!candidates.length) {
+    return target;
+  }
+  return candidates.sort((a, b) => Math.abs(a.x - target) - Math.abs(b.x - target) || b.count - a.count)[0].x;
+}
+
+function isTableLikeLayout(rows: string[][]): boolean {
+  const multiCellRows = rows.filter((row) => row.length >= 2);
+  if (multiCellRows.length < 2) {
+    return false;
+  }
+  const cellCountPattern = new Map<number, number>();
+  for (const row of multiCellRows) {
+    cellCountPattern.set(row.length, (cellCountPattern.get(row.length) ?? 0) + 1);
+  }
+  const repeatedColumnCount = Math.max(...cellCountPattern.values());
+  return repeatedColumnCount >= 2 || multiCellRows.length / rows.length >= 0.5;
+}
+
+function estimateTextWidth(text: string): number {
+  return Math.max(6, text.length * 6);
 }
 
 function evaluatePageQuality(

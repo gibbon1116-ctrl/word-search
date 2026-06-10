@@ -1,8 +1,11 @@
 import * as XLSX from "xlsx";
+import type { ExtractedChunk } from "../../models/ExtractedChunk";
 import type { ExtractedDocument } from "../../models/ExtractedDocument";
 import { assignChunkPositions, createId } from "../../utils/textUtils";
 import { getFileExtension, getReadableFileType } from "../../utils/fileUtils";
 import type { DocumentExtractor } from "./types";
+
+type RawChunk = Omit<ExtractedChunk, "chunkIndex" | "startOffset" | "endOffset">;
 
 export class ExcelExtractor implements DocumentExtractor {
   canHandle(file: File): boolean {
@@ -18,54 +21,57 @@ export class ExcelExtractor implements DocumentExtractor {
       cellDates: true,
       cellFormula: true,
     });
-    const rawChunks = [];
+    const rawChunks: RawChunk[] = [];
 
     for (const sheetName of workbook.SheetNames) {
       const sheet = workbook.Sheets[sheetName];
-      const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:A1");
+      if (!sheet["!ref"]) continue;
+      const range = XLSX.utils.decode_range(sheet["!ref"]);
+      const tableRows: string[][] = [];
+      const formulas: Record<string, string> = {};
+      let hasDisplayValue = false;
 
       for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
         const rowCells: string[] = [];
-        const formulas: Record<string, string> = {};
-        let firstColumn = -1;
-        let lastColumn = -1;
 
         for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
           const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
           const cell = sheet[address];
-          if (!cell) continue;
-          const displayValue = XLSX.utils.format_cell(cell).trim();
-          if (!displayValue) continue;
-          if (firstColumn < 0) firstColumn = columnIndex;
-          lastColumn = columnIndex;
-          rowCells.push(`${address}: ${displayValue}`);
-          if (cell.f) {
+          const displayValue = cell ? XLSX.utils.format_cell(cell).trim() : "";
+          if (displayValue) hasDisplayValue = true;
+          rowCells.push(displayValue);
+          if (cell?.f) {
             formulas[address] = cell.f;
           }
         }
 
-        if (!rowCells.length) continue;
-
-        const rowNumber = rowIndex + 1;
-        const cellRange =
-          firstColumn >= 0 && lastColumn >= 0
-            ? `${XLSX.utils.encode_cell({ r: rowIndex, c: firstColumn })}:${XLSX.utils.encode_cell({
-                r: rowIndex,
-                c: lastColumn,
-              })}`
-            : undefined;
-
-        rawChunks.push({
-          chunkId: createId("chunk"),
-          documentId,
-          chunkType: "excel-row" as const,
-          text: `シート名: ${sheetName}\n行番号: ${rowNumber}\n${rowCells.join("\n")}`,
-          sheetName,
-          rowNumber,
-          cellRange,
-          metadata: { formulas },
-        });
+        tableRows.push(rowCells);
       }
+
+      if (!hasDisplayValue) continue;
+
+      const cellRange = `${XLSX.utils.encode_cell(range.s)}:${XLSX.utils.encode_cell(range.e)}`;
+      const columnLabels = createColumnLabels(range.s.c, range.e.c);
+      const textRows = tableRows.map((row, rowOffset) => {
+        const rowNumber = range.s.r + rowOffset + 1;
+        return `${rowNumber}\t${row.join("\t")}`;
+      });
+
+      rawChunks.push({
+        chunkId: createId("chunk"),
+        documentId,
+        chunkType: "excel-sheet",
+        text: [`シート名: ${sheetName}`, `セル範囲: ${cellRange}`, ["行", ...columnLabels].join("\t"), ...textRows].join("\n"),
+        sheetName,
+        cellRange,
+        metadata: {
+          formulas,
+          tableKind: "excel-sheet",
+          tableRows,
+          tableColumnLabels: columnLabels,
+          tableStartRowNumber: range.s.r + 1,
+        },
+      });
     }
 
     const chunks = assignChunkPositions(rawChunks);
@@ -86,4 +92,12 @@ export class ExcelExtractor implements DocumentExtractor {
       metadata: { sheetNames: workbook.SheetNames },
     };
   }
+}
+
+function createColumnLabels(startColumn: number, endColumn: number): string[] {
+  const labels: string[] = [];
+  for (let columnIndex = startColumn; columnIndex <= endColumn; columnIndex += 1) {
+    labels.push(XLSX.utils.encode_col(columnIndex));
+  }
+  return labels;
 }

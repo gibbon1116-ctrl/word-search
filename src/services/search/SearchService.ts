@@ -25,13 +25,20 @@ export class SearchService {
     const results = await this.collectSearchResults({ ...criteria, limit: undefined });
     const documents = await getAllDocuments();
     const documentById = new Map(documents.map((document) => [document.documentId, document]));
+    const filteredDocuments = documents.filter((document) => matchesDocumentFilters(document, criteria));
     const keywords = splitKeywords(criteria.query);
     const grouped = new Map<string, SearchDocumentSummaryDraft>();
+    const titleMatchedDocumentIds = new Set(
+      filteredDocuments
+        .filter((document) => matchesDocumentTitle(document, keywords))
+        .map((document) => document.documentId),
+    );
 
     for (const result of results) {
       const document = documentById.get(result.documentId);
       const draft = grouped.get(result.documentId) ?? createSummaryDraft(result, document);
       draft.totalHitCount += 1;
+      draft.contentHitCount += 1;
       draft.chunkIds.add(result.chunkId);
       if (result.pageNumber !== undefined) draft.pageNumbers.add(result.pageNumber);
       if (result.sheetName) draft.sheetNames.add(result.sheetName);
@@ -51,12 +58,38 @@ export class SearchService {
       grouped.set(result.documentId, draft);
     }
 
+    for (const documentId of titleMatchedDocumentIds) {
+      const document = documentById.get(documentId);
+      if (!document) continue;
+      const draft =
+        grouped.get(documentId) ??
+        createSummaryDraft(
+          {
+            documentId,
+            fileName: document.fileName,
+            fileType: document.fileType,
+          },
+          document,
+        );
+      draft.titleMatched = true;
+      draft.titleMatchText = getDocumentTitle(document);
+      draft.totalHitCount += 1;
+      draft.maxScore = Math.max(draft.maxScore, 2);
+      if (!draft.topSnippet) {
+        draft.topSnippet = `タイトル: ${draft.titleMatchText}`;
+      }
+      grouped.set(documentId, draft);
+    }
+
     return Array.from(grouped.values())
       .map((draft) => ({
         documentId: draft.documentId,
         fileName: draft.fileName,
         fileType: draft.fileType,
         importedAt: draft.importedAt,
+        titleMatched: draft.titleMatched,
+        titleMatchText: draft.titleMatchText,
+        contentHitCount: draft.contentHitCount,
         totalHitCount: draft.totalHitCount,
         matchedChunkCount: draft.chunkIds.size,
         matchedPageNumbers: Array.from(draft.pageNumbers).sort((a, b) => a - b),
@@ -68,7 +101,10 @@ export class SearchService {
         minOcrConfidence: draft.minOcrConfidence,
         maxScore: draft.maxScore,
       }))
-      .sort((a, b) => b.maxScore - a.maxScore || b.totalHitCount - a.totalHitCount || a.fileName.localeCompare(b.fileName, "ja-JP"));
+      .sort((a, b) => {
+        if (a.titleMatched !== b.titleMatched) return a.titleMatched ? -1 : 1;
+        return b.maxScore - a.maxScore || b.contentHitCount - a.contentHitCount || a.fileName.localeCompare(b.fileName, "ja-JP");
+      });
   }
 
   async searchWithinDocument(criteria: SearchCriteria, documentId: string): Promise<SearchResult[]> {
@@ -113,9 +149,7 @@ export class SearchService {
           typeof chunk.metadata.correctedSearchText === "string" ? chunk.metadata.correctedSearchText : "";
         const originalOcrText =
           typeof chunk.metadata.originalOcrText === "string" ? chunk.metadata.originalOcrText : "";
-        const normalizedTarget = normalizeForSearch(
-          [document.fileName, chunk.heading, correctedSearchText, originalOcrText, chunk.text].filter(Boolean).join("\n"),
-        );
+        const normalizedTarget = normalizeForSearch([chunk.heading, correctedSearchText, originalOcrText, chunk.text].filter(Boolean).join("\n"));
         if (!keywords.every((keyword) => normalizedTarget.includes(keyword) || fuzzyKeywordMatch(normalizedTarget, keyword))) {
           continue;
         }
@@ -143,6 +177,9 @@ interface SearchDocumentSummaryDraft {
   fileName: string;
   fileType: string;
   importedAt: string;
+  titleMatched: boolean;
+  titleMatchText?: string;
+  contentHitCount: number;
   totalHitCount: number;
   chunkIds: Set<string>;
   pageNumbers: Set<number>;
@@ -155,12 +192,17 @@ interface SearchDocumentSummaryDraft {
   maxScore: number;
 }
 
-function createSummaryDraft(result: SearchResult, document?: DocumentRecord): SearchDocumentSummaryDraft {
+function createSummaryDraft(
+  result: Pick<SearchResult, "documentId" | "fileName" | "fileType">,
+  document?: DocumentRecord,
+): SearchDocumentSummaryDraft {
   return {
     documentId: result.documentId,
     fileName: result.fileName,
     fileType: result.fileType,
     importedAt: document?.importedAt ?? "",
+    titleMatched: false,
+    contentHitCount: 0,
     totalHitCount: 0,
     chunkIds: new Set(),
     pageNumbers: new Set(),
@@ -282,6 +324,19 @@ function matchesDocumentFilters(document: DocumentRecord, criteria: SearchCriter
     return false;
   }
   return true;
+}
+
+function matchesDocumentTitle(document: DocumentRecord, keywords: string[]): boolean {
+  if (!keywords.length) {
+    return false;
+  }
+  const normalizedTitle = normalizeForSearch(getDocumentTitle(document));
+  return keywords.every((keyword) => normalizedTitle.includes(keyword) || fuzzyKeywordMatch(normalizedTitle, keyword));
+}
+
+function getDocumentTitle(document: DocumentRecord): string {
+  const title = document.metadata.title;
+  return typeof title === "string" && title.trim() ? title : document.fileName;
 }
 
 export const searchService = new SearchService();

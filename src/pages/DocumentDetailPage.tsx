@@ -177,9 +177,13 @@ export function DocumentDetailPage() {
                 {chunk.cellRange ? <span>{JA.labels.cellRange}: {chunk.cellRange}</span> : null}
                 {chunk.heading ? <span>{JA.labels.heading}: {chunk.heading}</span> : null}
               </div>
-              <pre>
-                <SnippetText text={getChunkDisplayText(chunk)} ranges={createHighlightRanges(getChunkDisplayText(chunk), highlightQuery)} />
-              </pre>
+              {getChunkTableRows(chunk) ? (
+                <ChunkTable chunk={chunk} query={highlightQuery} />
+              ) : (
+                <pre>
+                  <SnippetText text={getChunkDisplayText(chunk)} ranges={createHighlightRanges(getChunkDisplayText(chunk), highlightQuery)} />
+                </pre>
+              )}
             </article>
           ))}
         </div>
@@ -197,6 +201,64 @@ function getChunkDisplayText(chunk: ExtractedChunk): string {
   const correctedSearchText = typeof chunk.metadata.correctedSearchText === "string" ? chunk.metadata.correctedSearchText.trim() : "";
   const originalOcrText = typeof chunk.metadata.originalOcrText === "string" ? chunk.metadata.originalOcrText.trim() : "";
   return correctedSearchText || originalOcrText || chunk.text;
+}
+
+function getChunkTableRows(chunk: ExtractedChunk): string[][] | undefined {
+  const rows = chunk.metadata.tableRows;
+  if (!Array.isArray(rows) || !rows.every((row) => Array.isArray(row) && row.every((cell) => typeof cell === "string"))) {
+    return undefined;
+  }
+  return rows;
+}
+
+function getChunkTableColumnLabels(chunk: ExtractedChunk, columnCount: number): string[] {
+  const labels = chunk.metadata.tableColumnLabels;
+  if (Array.isArray(labels) && labels.every((label) => typeof label === "string")) {
+    return labels;
+  }
+  return Array.from({ length: columnCount }, (_, index) => `列${index + 1}`);
+}
+
+function ChunkTable({ chunk, query }: { chunk: ExtractedChunk; query: string }) {
+  const rows = getChunkTableRows(chunk);
+  if (!rows) {
+    return null;
+  }
+  const columnCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  const columnLabels = getChunkTableColumnLabels(chunk, columnCount);
+  const startRowNumber = typeof chunk.metadata.tableStartRowNumber === "number" ? chunk.metadata.tableStartRowNumber : 1;
+
+  return (
+    <div className="chunk-table-wrap">
+      <table className="chunk-table">
+        <thead>
+          <tr>
+            <th scope="col">行</th>
+            {columnLabels.map((label, index) => (
+              <th scope="col" key={`${label}-${index}`}>
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              <th scope="row">{startRowNumber + rowIndex}</th>
+              {Array.from({ length: columnCount }, (_, columnIndex) => {
+                const cell = row[columnIndex] ?? "";
+                return (
+                  <td key={columnIndex}>
+                    <SnippetText text={cell} ranges={createHighlightRanges(cell, query)} />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function createHighlightRanges(text: string, query: string): HighlightRange[] {
