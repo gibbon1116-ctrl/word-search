@@ -81,7 +81,7 @@ export class SearchService {
       grouped.set(documentId, draft);
     }
 
-    return Array.from(grouped.values())
+    const summaries = Array.from(grouped.values())
       .map((draft) => ({
         documentId: draft.documentId,
         fileName: draft.fileName,
@@ -105,6 +105,16 @@ export class SearchService {
         if (a.titleMatched !== b.titleMatched) return a.titleMatched ? -1 : 1;
         return b.maxScore - a.maxScore || b.contentHitCount - a.contentHitCount || a.fileName.localeCompare(b.fileName, "ja-JP");
       });
+
+    await saveSearchHistory({
+      id: createId("history"),
+      query: criteria.query,
+      fileType: criteria.fileType,
+      searchedAt: new Date().toISOString(),
+      resultCount: summaries.length,
+    });
+
+    return summaries;
   }
 
   async searchWithinDocument(criteria: SearchCriteria, documentId: string): Promise<SearchResult[]> {
@@ -224,6 +234,39 @@ function createTermSummary(term: string, chunks: ExtractedChunk[], criteria: Sea
   let hitCount = 0;
 
   for (const chunk of chunks) {
+    const tableRows = getTableRows(chunk);
+    if (tableRows) {
+      const startRowNumber = typeof chunk.metadata.tableStartRowNumber === "number" ? chunk.metadata.tableStartRowNumber : 1;
+      for (let rowIndex = 0; rowIndex < tableRows.length; rowIndex += 1) {
+        const rowText = tableRows[rowIndex].join("\t");
+        const matches = findTermMatches(rowText, term);
+        if (!matches.length && !fuzzyKeywordMatch(normalizeForSearch(rowText), term)) continue;
+        const effectiveMatches = matches.length ? matches : [{ start: 0, end: Math.min(rowText.length, term.length) }];
+        hitCount += matches.length || 1;
+        chunkIds.add(chunk.chunkId);
+        if (chunk.pageNumber !== undefined) pageNumbers.add(chunk.pageNumber);
+
+        for (const match of effectiveMatches.slice(0, 3)) {
+          const snippetStart = Math.max(0, match.start - beforeChars);
+          const snippetEnd = Math.min(rowText.length, match.end + afterChars);
+          const prefix = snippetStart > 0 ? "..." : "";
+          const snippetText = rowText.slice(snippetStart, snippetEnd);
+          snippets.push({
+            chunkId: chunk.chunkId,
+            pageNumber: chunk.pageNumber,
+            sheetName: chunk.sheetName,
+            rowNumber: startRowNumber + rowIndex,
+            tableRowIndex: rowIndex,
+            heading: chunk.heading,
+            snippet: `${prefix}${snippetText}${snippetEnd < rowText.length ? "..." : ""}`,
+            highlightRanges: createSnippetHighlightRanges(rowText, term, snippetStart, snippetEnd, prefix.length),
+            score: matches.length ? 1 : 0.55,
+          });
+        }
+      }
+      continue;
+    }
+
     const searchableText = getSearchableChunkText(chunk);
     const matches = findTermMatches(searchableText, term);
     if (!matches.length && !fuzzyKeywordMatch(normalizeForSearch(searchableText), term)) continue;
@@ -257,6 +300,14 @@ function createTermSummary(term: string, chunks: ExtractedChunk[], criteria: Sea
     chunkIds: Array.from(chunkIds),
     snippets,
   };
+}
+
+function getTableRows(chunk: ExtractedChunk): string[][] | undefined {
+  const rows = chunk.metadata.tableRows;
+  if (!Array.isArray(rows) || !rows.every((row) => Array.isArray(row) && row.every((cell) => typeof cell === "string"))) {
+    return undefined;
+  }
+  return rows;
 }
 
 function getSearchableChunkText(chunk: ExtractedChunk): string {

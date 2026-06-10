@@ -27,6 +27,7 @@ export interface SearchResult {
   pageNumber?: number;
   sheetName?: string;
   rowNumber?: number;
+  tableRowIndex?: number;
   cellRange?: string;
   heading?: string;
   metadata: Record<string, unknown>;
@@ -66,6 +67,7 @@ export interface SearchTermSummary {
     pageNumber?: number;
     sheetName?: string;
     rowNumber?: number;
+    tableRowIndex?: number;
     heading?: string;
     snippet: string;
     highlightRanges: HighlightRange[];

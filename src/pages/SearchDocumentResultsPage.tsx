@@ -89,7 +89,7 @@ export function SearchDocumentResultsPage() {
                     <p className="snippet">
                       <SnippetText text={snippet.snippet} ranges={snippet.highlightRanges} />
                     </p>
-                    <Link className="inline-link" to={`/documents/${documentId}?${createDetailParams(snippet.chunkId, query)}`}>
+                    <Link className="inline-link" to={`/documents/${documentId}?${createDetailParams(snippet.chunkId, query, snippet.tableRowIndex)}`}>
                       該当箇所を開く
                     </Link>
                   </article>
@@ -110,8 +110,9 @@ function formatValues(values: string[]): string {
   return `${values.slice(0, 12).join(", ")} ほか${values.length - 12}件`;
 }
 
-function createDetailParams(chunkId: string, query: string): string {
+function createDetailParams(chunkId: string, query: string, tableRowIndex?: number): string {
   const params = new URLSearchParams({ chunkId });
   if (query.trim()) params.set("query", query);
+  if (typeof tableRowIndex === "number") params.set("row", String(tableRowIndex));
   return params.toString();
 }

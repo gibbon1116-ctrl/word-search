@@ -796,6 +796,12 @@ mark {
   color: var(--muted);
 }
 
+.chunk-table tr.selected-table-row td,
+.chunk-table tr.selected-table-row th {
+  background: #fffbeb;
+  box-shadow: inset 0 0 0 2px #fde68a;
+}
+
 .metadata-pre {
   margin-top: 10px;
   padding: 10px;

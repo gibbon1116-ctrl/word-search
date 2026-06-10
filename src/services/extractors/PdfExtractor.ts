@@ -39,6 +39,18 @@ interface PdfTableColumn {
   x: number;
 }
 
+interface PdfHeaderTemplate {
+  labels: string[];
+  requiredText: string[];
+  pageTitleText: string[];
+  createColumns: (params: {
+    allItems: PdfPositionedTextItem[];
+    clusters: Array<{ x: number; count: number }>;
+    headerTextX: Map<string, number>;
+    minX: number;
+  }) => PdfTableColumn[];
+}
+
 interface PdfPageExtraction {
   pageNumber: number;
   text: string;
@@ -465,18 +477,18 @@ function createPdfTable(
   layoutRows: PdfLayoutRow[],
   fallbackRows: string[][],
 ): { rows: string[][]; columnLabels?: string[] } | undefined {
-  const columns = inferEstimateTableColumns(layoutRows);
+  const columns = inferTableColumns(layoutRows);
   if (!columns.length) {
     return isTableLikeLayout(fallbackRows) ? { rows: fallbackRows } : undefined;
   }
 
   const rows = layoutRows
-    .filter((row) => !isEstimateHeaderRow(row.items))
+    .filter((row) => !isKnownHeaderRow(row.items))
     .map((row) => assignItemsToColumns(row.items, columns))
     .filter((row) => row.some(Boolean));
 
-  if (!isTableLikeLayout(rows)) {
-    return isTableLikeLayout(fallbackRows) ? { rows: fallbackRows } : undefined;
+  if (!rows.length) {
+    return undefined;
   }
 
   return {
@@ -485,22 +497,47 @@ function createPdfTable(
   };
 }
 
-function inferEstimateTableColumns(rows: PdfLayoutRow[]): PdfTableColumn[] {
-  const headerRow = rows.find((row) => isEstimateHeaderRow(row.items));
-  if (!headerRow) {
+function inferTableColumns(rows: PdfLayoutRow[]): PdfTableColumn[] {
+  const headerCandidate = rows
+    .map((row) => ({ row, template: getHeaderTemplate(row.items) }))
+    .find((candidate) => candidate.template);
+  const template = headerCandidate?.template ?? getPageTitleTemplate(rows);
+  if (!template) {
     return [];
   }
 
   const allItems = rows.flatMap((row) => row.items);
   const clusters = createXClusters(allItems);
-  const headerTextX = createHeaderTextXMap(headerRow.items);
+  const headerTextX = createHeaderTextXMap(headerCandidate?.row.items ?? []);
   const minX = Math.min(...allItems.map((item) => item.x));
-  const quantityTarget = getAverageX(headerTextX, ["数", "量"], minX + 225) + 28;
-  const unitTarget = headerTextX.get("単位") ?? getAverageX(headerTextX, ["単", "位"], quantityTarget + 24);
-  const unitPriceTarget = headerTextX.get("価") ?? getAverageX(headerTextX, ["単", "価"], unitTarget + 50);
-  const amountTarget = headerTextX.get("額") ?? getAverageX(headerTextX, ["金", "額"], unitPriceTarget + 70);
+  const columns = template.createColumns({ allItems, clusters, headerTextX, minX });
 
-  const columns: PdfTableColumn[] = [
+  const uniqueColumns: PdfTableColumn[] = [];
+  for (const column of columns.sort((a, b) => a.x - b.x)) {
+    const previous = uniqueColumns[uniqueColumns.length - 1];
+    if (!previous || Math.abs(previous.x - column.x) > 4) {
+      uniqueColumns.push(column);
+    }
+  }
+  return uniqueColumns.length >= 4 ? uniqueColumns : [];
+}
+
+function createEstimateColumns({
+  clusters,
+  headerTextX,
+  minX,
+}: {
+  allItems: PdfPositionedTextItem[];
+  clusters: Array<{ x: number; count: number }>;
+  headerTextX: Map<string, number>;
+  minX: number;
+}): PdfTableColumn[] {
+  const quantityTarget = (headerTextX.get("数量") ?? getAverageX(headerTextX, ["数", "量"], minX + 225)) + 28;
+  const unitTarget = headerTextX.get("単位") ?? headerTextX.get("単 位") ?? getAverageX(headerTextX, ["単", "位"], quantityTarget + 24);
+  const unitPriceTarget = headerTextX.get("単価") ?? getAverageX(headerTextX, ["単", "価"], unitTarget + 50);
+  const amountTarget = headerTextX.get("金額") ?? getAverageX(headerTextX, ["金", "額"], unitPriceTarget + 70);
+
+  return [
     { label: "名称", x: chooseClusterX(clusters, minX, minX - 4, minX + 24) },
     { label: "摘要", x: chooseClusterX(clusters, (headerTextX.get("摘") ?? minX + 82) - 30, minX + 36, quantityTarget - 40) },
     { label: "数量", x: chooseClusterX(clusters, quantityTarget, quantityTarget - 45, quantityTarget + 18) },
@@ -509,15 +546,37 @@ function inferEstimateTableColumns(rows: PdfLayoutRow[]): PdfTableColumn[] {
     { label: "金額", x: chooseClusterX(clusters, amountTarget, amountTarget - 32, amountTarget + 24) },
     { label: "備考", x: chooseClusterX(clusters, headerTextX.get("備") ?? amountTarget + 58, amountTarget + 24, amountTarget + 120) },
   ];
+}
 
-  const uniqueColumns: PdfTableColumn[] = [];
-  for (const column of columns.sort((a, b) => a.x - b.x)) {
-    const previous = uniqueColumns[uniqueColumns.length - 1];
-    if (!previous || Math.abs(previous.x - column.x) > 12) {
-      uniqueColumns.push(column);
-    }
-  }
-  return uniqueColumns.length >= 4 ? uniqueColumns : [];
+function createUnitPriceColumns({
+  clusters,
+  headerTextX,
+  minX,
+}: {
+  allItems: PdfPositionedTextItem[];
+  clusters: Array<{ x: number; count: number }>;
+  headerTextX: Map<string, number>;
+  minX: number;
+}): PdfTableColumn[] {
+  const unitTarget = headerTextX.get("単位") ?? headerTextX.get("単 位") ?? getAverageX(headerTextX, ["単", "位"], minX + 174);
+  const quantityTarget = headerTextX.get("数量") ?? getAverageX(headerTextX, ["数", "量"], unitTarget + 38);
+  const multiplierTarget = headerTextX.get("乗率") ?? getAverageX(headerTextX, ["乗", "率"], quantityTarget + 42);
+  const unitPriceTarget = headerTextX.get("単価") ?? getAverageX(headerTextX, ["単", "価"], multiplierTarget + 50);
+  const amountTarget = headerTextX.get("金額") ?? getAverageX(headerTextX, ["金", "額"], unitPriceTarget + 62);
+  const rateTarget = headerTextX.get("率対象") ?? amountTarget + 32;
+
+  return [
+    { label: "NO", x: chooseClusterX(clusters, headerTextX.get("NO") ?? minX, minX - 2, minX + 8) },
+    { label: "名称", x: chooseClusterX(clusters, minX + 8, minX + 6, minX + 45) },
+    { label: "摘要", x: chooseClusterX(clusters, (headerTextX.get("摘") ?? minX + 91) - 31, minX + 50, unitTarget - 40) },
+    { label: "単位", x: chooseClusterX(clusters, unitTarget, unitTarget - 10, unitTarget + 16) },
+    { label: "数量", x: chooseClusterX(clusters, quantityTarget, quantityTarget - 14, quantityTarget + 14) },
+    { label: "乗率", x: chooseClusterX(clusters, multiplierTarget, multiplierTarget - 14, multiplierTarget + 14) },
+    { label: "単価", x: chooseClusterX(clusters, unitPriceTarget, unitPriceTarget - 20, unitPriceTarget + 20) },
+    { label: "金額", x: chooseClusterX(clusters, amountTarget, amountTarget - 28, amountTarget + 20) },
+    { label: "率対象", x: chooseClusterX(clusters, rateTarget, rateTarget - 8, rateTarget + 12) },
+    { label: "備考", x: chooseClusterX(clusters, headerTextX.get("備") ?? rateTarget + 32, rateTarget + 20, rateTarget + 90) },
+  ];
 }
 
 function assignItemsToColumns(items: PdfPositionedTextItem[], columns: PdfTableColumn[]): string[] {
@@ -544,20 +603,80 @@ function findNearestColumnIndex(x: number, columns: PdfTableColumn[]): number {
   return bestIndex;
 }
 
-function isEstimateHeaderRow(items: PdfPositionedTextItem[]): boolean {
+const PDF_HEADER_TEMPLATES: PdfHeaderTemplate[] = [
+  {
+    labels: ["NO", "名称", "摘要", "単位", "数量", "乗率", "単価", "金額", "率対象", "備考"],
+    requiredText: ["NO", "名称", "摘要", "単位", "数量", "乗率", "単価", "金額", "率対象", "備考"],
+    pageTitleText: ["代価表"],
+    createColumns: createUnitPriceColumns,
+  },
+  {
+    labels: ["名称", "摘要", "数量", "単位", "単価", "金額", "備考"],
+    requiredText: ["名称", "摘要", "数量", "単位", "単価", "金額", "備考"],
+    pageTitleText: ["細目別内訳"],
+    createColumns: createEstimateColumns,
+  },
+];
+
+function isKnownHeaderRow(items: PdfPositionedTextItem[]): boolean {
+  return Boolean(getHeaderTemplate(items));
+}
+
+function getHeaderTemplate(items: PdfPositionedTextItem[]): PdfHeaderTemplate | undefined {
   const compactText = items
     .map((item) => item.text)
     .join("")
+    .replace(/\s+/g, "")
+    .replace(/単位/g, "単位");
+  return PDF_HEADER_TEMPLATES.find((template) => template.requiredText.every((text) => compactText.includes(text)));
+}
+
+function getPageTitleTemplate(rows: PdfLayoutRow[]): PdfHeaderTemplate | undefined {
+  const pageText = rows
+    .slice(0, 6)
+    .flatMap((row) => row.items)
+    .map((item) => item.text)
+    .join("")
     .replace(/\s+/g, "");
-  return compactText.includes("名称摘要数量単位単価金額備考");
+  return PDF_HEADER_TEMPLATES.find((template) => template.pageTitleText.some((text) => pageText.includes(text)));
 }
 
 function createHeaderTextXMap(items: PdfPositionedTextItem[]): Map<string, number> {
   const map = new Map<string, number>();
-  for (const item of items) {
-    map.set(item.text, item.x);
+  const sortedItems = [...items].sort((a, b) => a.x - b.x);
+  for (const item of sortedItems) {
+    if (!map.has(item.text)) {
+      map.set(item.text, item.x);
+    }
+    const compactText = item.text.replace(/\s+/g, "");
+    if (compactText && !map.has(compactText)) {
+      map.set(compactText, item.x);
+    }
+  }
+
+  for (const label of ["NO", "名称", "摘要", "単位", "数量", "乗率", "単価", "金額", "率対象", "備考"]) {
+    const labelX = findHeaderLabelX(sortedItems, label);
+    if (typeof labelX === "number") {
+      map.set(label, labelX);
+    }
   }
   return map;
+}
+
+function findHeaderLabelX(items: PdfPositionedTextItem[], label: string): number | undefined {
+  for (let startIndex = 0; startIndex < items.length; startIndex += 1) {
+    let compactText = "";
+    for (let index = startIndex; index < items.length; index += 1) {
+      compactText += items[index].text.replace(/\s+/g, "");
+      if (compactText === label || (index === startIndex && compactText.startsWith(label))) {
+        return items[startIndex].x;
+      }
+      if (compactText.length >= label.length && !label.startsWith(compactText)) {
+        break;
+      }
+    }
+  }
+  return undefined;
 }
 
 function getAverageX(map: Map<string, number>, keys: string[], fallback: number): number {

@@ -25,6 +25,7 @@ export function DocumentDetailPage() {
   const { documentId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const selectedChunkId = searchParams.get("chunkId");
+  const selectedTableRowIndex = parseTableRowIndex(searchParams.get("row"));
   const highlightQuery = searchParams.get("query") ?? "";
   const [documentRecord, setDocumentRecord] = useState<DocumentRecord>();
   const [chunks, setChunks] = useState<ExtractedChunk[]>([]);
@@ -42,9 +43,10 @@ export function DocumentDetailPage() {
   useEffect(() => {
     if (!selectedChunkId) return;
     window.setTimeout(() => {
-      document.getElementById(selectedChunkId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const rowId = typeof selectedTableRowIndex === "number" ? createTableRowId(selectedChunkId, selectedTableRowIndex) : undefined;
+      document.getElementById(rowId ?? selectedChunkId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 80);
-  }, [selectedChunkId, chunks.length]);
+  }, [selectedChunkId, selectedTableRowIndex, chunks.length]);
 
   const filteredChunks = useMemo(() => {
     if (!chunkQuery.trim()) return chunks;
@@ -178,7 +180,7 @@ export function DocumentDetailPage() {
                 {chunk.heading ? <span>{JA.labels.heading}: {chunk.heading}</span> : null}
               </div>
               {getChunkTableRows(chunk) ? (
-                <ChunkTable chunk={chunk} query={highlightQuery} />
+                <ChunkTable chunk={chunk} query={highlightQuery} selectedRowIndex={chunk.chunkId === selectedChunkId ? selectedTableRowIndex : undefined} />
               ) : (
                 <pre>
                   <SnippetText text={getChunkDisplayText(chunk)} ranges={createHighlightRanges(getChunkDisplayText(chunk), highlightQuery)} />
@@ -219,7 +221,7 @@ function getChunkTableColumnLabels(chunk: ExtractedChunk, columnCount: number): 
   return Array.from({ length: columnCount }, (_, index) => `列${index + 1}`);
 }
 
-function ChunkTable({ chunk, query }: { chunk: ExtractedChunk; query: string }) {
+function ChunkTable({ chunk, query, selectedRowIndex }: { chunk: ExtractedChunk; query: string; selectedRowIndex?: number }) {
   const rows = getChunkTableRows(chunk);
   if (!rows) {
     return null;
@@ -243,7 +245,7 @@ function ChunkTable({ chunk, query }: { chunk: ExtractedChunk; query: string }) 
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
+            <tr id={createTableRowId(chunk.chunkId, rowIndex)} key={rowIndex} className={rowIndex === selectedRowIndex ? "selected-table-row" : undefined}>
               <th scope="row">{startRowNumber + rowIndex}</th>
               {Array.from({ length: columnCount }, (_, columnIndex) => {
                 const cell = row[columnIndex] ?? "";
@@ -259,6 +261,16 @@ function ChunkTable({ chunk, query }: { chunk: ExtractedChunk; query: string }) 
       </table>
     </div>
   );
+}
+
+function parseTableRowIndex(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function createTableRowId(chunkId: string, rowIndex: number): string {
+  return `${chunkId}-row-${rowIndex}`;
 }
 
 function createHighlightRanges(text: string, query: string): HighlightRange[] {
