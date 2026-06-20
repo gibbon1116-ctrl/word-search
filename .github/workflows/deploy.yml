@@ -1,8 +1,7 @@
 name: GitHub Pagesへ公開
 
 on:
-  push:
-    branches: ["main"]
+  # 自動実行停止のため手動実行のみ残す。
   workflow_dispatch:
 
 permissions:
